@@ -44,6 +44,8 @@ other plugins integrate directly.
 
 ## Features
 
+<details>
+<summary><b>Quick Sync, folder & device management, pairing wizard, smart header, performance tuning, legacy support, binary management, maintenance, notifications …</b> – click to expand</summary>
 
 ### Quick Sync
 
@@ -242,6 +244,7 @@ runtime: epollwait on fd 4 failed with 38
 fatal error: runtime: netpoll failed
 ```
 
+
 Legacy mode solves this by running a separate, older Syncthing binary that
 was compiled with a Go version compatible with the device's kernel:
 
@@ -319,6 +322,8 @@ version.  Factory reset and plugin removal clean up both directories.
 
 - Configurable on/off globally via **Show notifications** in the Automation menu.
 - Queued: on e-ink devices, simultaneous toasts render on top of each other and become unreadable. All notifications pass through a queue that waits for each toast's timeout before showing the next one.
+
+</details>
 
 ---
 
@@ -429,6 +434,9 @@ that offers only the items above.
 
 ## First-time setup
 
+<details>
+<summary><b>Step-by-step: download binary, set password, pair, accept folders, sync</b></summary>
+
 ### 1 — Download the Syncthing binary
 
 Open **☰ → Tools → KOSyncthing+ → Start Syncthing** (or **Install Syncthing binary** if no binary is present).
@@ -468,12 +476,15 @@ After pairing, your sync partner can share folders with you. Open the **KOSyncth
 
 Tap **Quick Sync**. The plugin starts Syncthing, waits for all folders to finish, shows a transfer summary, and stops the daemon.
 
+</details>
+
 ---
 
 ## Menu reference
 
-The plugin lives under **☰ → Tools → KOSyncthing+** in the file‑manager and reader
-menus.
+<details>
+<summary><b>Full menu tree</b></summary>
+
 
 
 ```
@@ -621,9 +632,14 @@ KOSyncthing+                                   ← top‑level entry
         GitHub Releases; Wi‑Fi required
 ```
 
+</details>
+
 ---
 
 ## Automation
+
+<details>
+<summary><b>Notifications, autostart, periodic sync, charging gate, dispatcher actions</b></summary>
 
 ### Show notifications
 
@@ -706,9 +722,14 @@ hardware buttons in KOReader's Gesture Manager:
 - **Quick Sync** — run a one‑shot sync.
 - **Pause / resume all folders** — toggle the pause state of all folders.
 
+</details>
+
 ---
 
 ## Conflict resolution
+
+<details>
+<summary><b>Per-file and bulk resolution strategies</b></summary>
 
 Syncthing creates `filename.sync-conflict-YYYYMMDD-HHMMSS-DEVID.ext` files when two devices modify the same file concurrently. The plugin scans all configured folder paths for these files and surfaces them in **Status & conflicts → Conflicts (N)**.
 
@@ -738,9 +759,14 @@ The **Resolve all N conflicts…** option offers three strategies:
 
 The conflict list is capped at 50 visible entries; a note prompts you to use bulk resolve if more exist.
 
+</details>
+
 ---
 
 ## Companion plugin API
+
+<details>
+<summary><b>Public API for other KOReader plugins</b></summary>
 
 The plugin exposes a rich public API for other KOReader plugins.  
 All methods are documented in detail in **[API.md](API.md)**.
@@ -759,16 +785,20 @@ The API is **platform-agnostic**.  On Android (remote mode) every call is transp
 
 Access it via the global `_G.KOSyncthingPlusAPI` or, preferrably, by requiring the module:
 
+
 ```
 
 local Syncthing = require("st_api_public").api
 
 ```
 
+
 The IgnoreRegistry (also documented in the API) lets companion plugins exclude
 their own sidecar files from the conflict scanner.
 
 All listener callbacks are wrapped in `pcall` — a broken listener will never crash KOSyncthing+.
+
+</details>
 
 ---
 
@@ -778,13 +808,14 @@ All listener callbacks are wrapped in `pcall` — a broken listener will never c
 |----------|------|
 | Bulgarian | `locale/bg.po` |
 
-
-
 The master template for all translatable strings is `locale/syncthing.pot`. To contribute a new language or improve an existing one, edit the relevant `.po` file and open a pull request.
 
 ---
 
 ## Settings reference
+
+<details>
+<summary><b>All syncthing_* settings in KOReader</b></summary>
 
 All settings are stored in KOReader's `G_reader_settings` under the `syncthing_*` prefix.
 
@@ -816,9 +847,14 @@ Syncthing's own config, TLS keys, device ID cache, and index database live in
 inside KOReader's data directory — not inside the plugin folder. Plugin updates
 never touch your pairing configuration or folder setup.
 
+</details>
+
 ---
 
 ## Architecture overview
+
+<details>
+<summary><b>File structure and module descriptions</b></summary>
 
 ```
 kosyncthing_plus.koplugin/
@@ -983,13 +1019,19 @@ locale/
 └── *.po                 Per-language translations (bg)
 ```
 
+
 The main plugin class (`Syncthing`) is assembled by mixing all module return tables into it at startup. Each module exports a flat table of functions; `main.lua` assigns them with `for name, func in pairs(mod) do Syncthing[name] = func end`. This keeps each concern isolated while presenting a single unified object to KOReader.
 
 The cache layer uses KOReader's `CacheSQLite` (persistent, zstd-compressed) when available and falls back to an in-memory table otherwise. Invalidation is surgical: process events, folder changes, and conflict changes each invalidate only the relevant keys.
 
+</details>
+
 ---
 
 ## Troubleshooting
+
+<details>
+<summary><b>Common problems and solutions</b></summary>
 
 ### General advice
 
@@ -1067,8 +1109,8 @@ Wi‑Fi dropped during the sync. The plugin will not automatically retry.
 
 This appears when Wi‑Fi could not be turned on within 2 minutes
 (despite multiple retries). The plugin releases all resources
-and does **not** retry automatically. The daemon doesn't work in the background, no Wi‑Fi
-no meaningless background resource usage.
+and does **not** retry automatically. The daemon doesn't work in the background,
+no Wi‑Fi no meaningless background resource usage.
 
 - Tap **Quick Sync** again when you have a stable Wi‑Fi connection.
 - If you use Periodic Sync, it will automatically try again later.
@@ -1077,10 +1119,12 @@ no meaningless background resource usage.
 
 If the log shows:
 
+
 ```
 runtime: epollwait on fd 4 failed with 38
 fatal error: runtime: netpoll failed
 ```
+
 
 Your device's Linux kernel is too old for the current Syncthing binary.
 Open **Setup → Legacy Syncthing → Set up Legacy mode…**.  The plugin detects
@@ -1094,13 +1138,17 @@ If Syncthing refuses to start:
 - Check that your KOReader home directory is set (Settings → Home folder).
 - Check the logs under **Maintenance → View logs** for specific errors.
 
+</details>
+
+---
+
 ## Acknowledgements
 
 This plugin would not exist without the work of those who came before:
 
 **[jasonchoimtt](https://github.com/jasonchoimtt)** and contributors to [koreader-syncthing](https://github.com/jasonchoimtt/koreader-syncthing)
 
-**[bps](https://github.com/bps)** and contributors to [syncthing.koplugin](https://github.com/bps/syncthing.koplugin) 
+**[bps](https://github.com/bps)** and contributors to [syncthing.koplugin](https://github.com/bps/syncthing.koplugin)
 
 **[The Anarcat](https://anarc.at/hardware/tablet/kobo-clara-hd/#install-syncthing)** — excellent blog post.
 
