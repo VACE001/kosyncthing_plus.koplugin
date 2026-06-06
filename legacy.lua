@@ -242,16 +242,8 @@ end
 
 --- Detect the device architecture for constructing the download URL.
 local function detectArch()
-    local p = io.popen("uname -m 2>/dev/null")
-    if not p then return "arm" end  -- safe default for Kindle/Kobo
-    local m = p:read("*l"); p:close()
-    if not m then return "arm" end
-    if m == "aarch64" or m == "arm64" then return "arm64" end
-    if m == "x86_64"                  then return "amd64" end
-    if m:match("^i[3-6]86$")          then return "386"   end
-    -- All other strings (e.g. "armv7l", "armv6l") → 32-bit ARM, the correct
-    -- choice for the vast majority of Kindle and Kobo devices.
-    return "arm"
+    local arch = U.detectArch()
+    return arch
 end
 
 --- Download and install a specific Syncthing version as "syncthing-legacy".
