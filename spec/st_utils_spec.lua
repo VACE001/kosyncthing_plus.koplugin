@@ -501,3 +501,160 @@ describe("constants", function()
         assert.is_true(keys["syncthing_was_running"])
     end)
 end)
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Suite 10: detectArch (shared architecture detection helper)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+describe("detectArch", function()
+    before_each(function() Mock.reset() end)
+
+    -- Force a fresh st_utils so the LuaJIT path is re-evaluated each time.
+    local function freshUtilsArch()
+        package.loaded["st_utils"] = nil
+        package.loaded["util"]     = nil
+        local st_path = package.searchpath("st_utils", package.path)
+        package.preload["st_utils"] = assert(loadfile(st_path))
+        return require("st_utils")
+    end
+
+    -- Stub the `jit` module so detectArch sees the requested arch.
+    -- detectArch uses pcall(require,"jit") which reads package.loaded["jit"],
+    -- NOT _G.jit, so we must control the cache entry, not the global.
+    local function withJit(arch, fn)
+        local real = package.loaded["jit"]
+        package.loaded["jit"] = { arch = arch }
+        local ok, err = pcall(fn)
+        package.loaded["jit"] = real
+        if not ok then error(err, 2) end
+    end
+
+    -- Remove the jit module from cache so the uname fallback path runs.
+    local function withoutJit(fn)
+        local real = package.loaded["jit"]
+        package.loaded["jit"] = nil
+        -- Also nil the preload so require() doesn't re-load the real jit.
+        local real_pre = package.preload["jit"]
+        package.preload["jit"] = function() return nil end
+        local ok, err = pcall(fn)
+        package.loaded["jit"] = real
+        package.preload["jit"] = real_pre
+        if not ok then error(err, 2) end
+    end
+
+    -- ── LuaJIT path ──────────────────────────────────────────────────────────
+
+    it("returns 'arm64' for LuaJIT arm64", function()
+        withJit("arm64", function()
+            local U = freshUtilsArch()
+            local arch, fallback = U.detectArch()
+            assert.are.equal("arm64", arch)
+            assert.is_false(fallback)
+        end)
+    end)
+
+    it("returns 'amd64' for LuaJIT x64", function()
+        withJit("x64", function()
+            local U = freshUtilsArch()
+            local arch, fallback = U.detectArch()
+            assert.are.equal("amd64", arch)
+            assert.is_false(fallback)
+        end)
+    end)
+
+    it("returns 'arm' for LuaJIT arm", function()
+        withJit("arm", function()
+            local U = freshUtilsArch()
+            local arch, fallback = U.detectArch()
+            assert.are.equal("arm", arch)
+            assert.is_false(fallback)
+        end)
+    end)
+
+    it("returns '386' for LuaJIT x86", function()
+        withJit("x86", function()
+            local U = freshUtilsArch()
+            local arch, fallback = U.detectArch()
+            assert.are.equal("386", arch)
+            assert.is_false(fallback)
+        end)
+    end)
+
+    -- ── uname fallback path ───────────────────────────────────────────────────
+
+    it("returns 'arm64' for uname aarch64 (no jit)", function()
+        withoutJit(function()
+            withPopen({ "aarch64\n" }, function()
+                local U = freshUtilsArch()
+                local arch, fallback = U.detectArch()
+                assert.are.equal("arm64", arch)
+                assert.is_false(fallback)
+            end)
+        end)
+    end)
+
+    it("returns 'amd64' for uname x86_64 (no jit)", function()
+        withoutJit(function()
+            withPopen({ "x86_64\n" }, function()
+                local U = freshUtilsArch()
+                local arch, fallback = U.detectArch()
+                assert.are.equal("amd64", arch)
+                assert.is_false(fallback)
+            end)
+        end)
+    end)
+
+    it("returns '386' for uname i686 (no jit)", function()
+        withoutJit(function()
+            withPopen({ "i686\n" }, function()
+                local U = freshUtilsArch()
+                local arch, fallback = U.detectArch()
+                assert.are.equal("386", arch)
+                assert.is_false(fallback)
+            end)
+        end)
+    end)
+
+    it("returns 'arm' for uname armv7l (no jit)", function()
+        withoutJit(function()
+            withPopen({ "armv7l\n" }, function()
+                local U = freshUtilsArch()
+                local arch, fallback = U.detectArch()
+                assert.are.equal("arm", arch)
+                assert.is_false(fallback)
+            end)
+        end)
+    end)
+
+    it("returns 'arm' + fallback=true for unrecognised uname (no jit)", function()
+        withoutJit(function()
+            withPopen({ "mips64el\n" }, function()
+                local U = freshUtilsArch()
+                local arch, fallback = U.detectArch()
+                assert.are.equal("arm", arch)
+                assert.is_true(fallback)
+            end)
+        end)
+    end)
+
+    it("returns 'arm' + fallback=true when popen fails (no jit)", function()
+        withoutJit(function()
+            withPopen({ nil }, function()   -- nil → popen returns nil
+                local U = freshUtilsArch()
+                local arch, fallback = U.detectArch()
+                assert.are.equal("arm", arch)
+                assert.is_true(fallback)
+            end)
+        end)
+    end)
+
+    -- ── ALL_SETTINGS_KEYS contains the new key ────────────────────────────────
+
+    it("ALL_SETTINGS_KEYS includes syncthing_auto_merge_conflicts", function()
+        local U = freshUtilsArch()
+        local keys = {}
+        for _, k in ipairs(U.ALL_SETTINGS_KEYS) do keys[k] = true end
+        assert.is_true(keys["syncthing_auto_merge_conflicts"],
+            "syncthing_auto_merge_conflicts must be in ALL_SETTINGS_KEYS for factory reset")
+    end)
+end)
