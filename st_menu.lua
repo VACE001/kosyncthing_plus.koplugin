@@ -1708,7 +1708,7 @@ local function getMaintenanceMenu(self, touchmenu_instance)
 				-- Also copy to clipboard as a backup
 				U.copyToClipboard(snapshot)
 			end),
-		}
+		},
 
         -- Debug: API error viewer (now shows up to 8 recent errors)
         {
