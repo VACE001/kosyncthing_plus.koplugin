@@ -111,16 +111,7 @@ local function invalidateVersionCache(self)
     _version_cache = nil
 end
 
-local function detectArch()
-    local p = io.popen("uname -m 2>/dev/null")
-    if not p then return "arm", true, "unknown" end
-    local m = p:read("*l"); p:close()
-    if not m then return "arm", true, "unknown" end
-    if m == "aarch64" or m == "arm64" then return "arm64", false, m end
-    if m == "x86_64"                  then return "amd64", false, m end
-    if m:match("^i[3-6]86$")          then return "386",   false, m end
-    return "arm", m:match("^armv%d") == nil, m
-end
+local detectArch = U.detectArch
 
 ---------------------------------------------------------------------------
 -- _finishInstallation: extract the archive, locate the syncthing binary,
