@@ -113,6 +113,13 @@ local U = {
         if m:match("^i[3-6]86$")          then return "386",   false, m end
         return "arm", m:match("^armv%d") == nil, m
     end,
+    -- fileSize / isGzip: used by downloadBinary to validate the downloaded
+    -- archive. Default to a valid 2 MB gzip so existing tests that don't
+    -- care about this check continue to pass.  Override via FAKE.file_size /
+    -- FAKE.is_gzip when testing those specific failure paths.
+    fileSize = function(_path) return FAKE.file_size or (2 * 1024 * 1024) end,
+    isGzip   = function(_path) return FAKE.is_gzip ~= false end,
+    isELF    = function(_path) return FAKE.is_elf  ~= false end,
 }
 package.loaded["st_utils"] = U
 
@@ -304,20 +311,22 @@ describe("Legacy.downloadBinary state machine + error handling", function()
         FAKE.find_result = "/tmp/x/syncthing"
     end)
     it("install (mv) fails on read-only fs: callback(false), nothing installed", function()
-        reset_exec(); reset_settings(); EXEC_FAIL = { "mv '" }
+        -- The first mv is to a .new staging file; fail only that one.
+        reset_exec(); reset_settings(); EXEC_FAIL = { "syncthing-legacy.new'" }
         local cb_ok = "unset"
         fresh_legacy().downloadBinary(self_obj(), "v1.27.12", function(o) cb_ok = o end)
         assert.is_false(cb_ok)
         assert.is_nil(SETTINGS["syncthing_legacy_installed_version"])
         EXEC_FAIL = {}
     end)
-    it("chmod fails (noexec): removes the bad binary, records nothing", function()
+    it("chmod fails (noexec): removes staging file, records nothing", function()
         reset_exec(); reset_settings(); EXEC_FAIL = { "chmod" }
         local cb_ok = "unset"
         fresh_legacy().downloadBinary(self_obj(), "v1.27.12", function(o) cb_ok = o end)
         assert.is_false(cb_ok)
         assert.is_nil(SETTINGS["syncthing_legacy_installed_version"])
-        assert.is_truthy(find_log("rm -f '/PLUG/syncthing-legacy'"))
+        -- cleanup() removes the staging file (.new), not the live binary
+        assert.is_truthy(find_log("rm -f '/PLUG/syncthing-legacy.new'"))
         EXEC_FAIL = {}
     end)
     it("curl fallback succeeds when wget is missing", function()
