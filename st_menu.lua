@@ -1149,6 +1149,14 @@ local function getAutomationMenu(self)
     local charging_help = _("Automation rules above only fire if the device is plugged in and charging.\n\n"
                          .. "Useful when you have a large library and don't want an unexpected Wi-Fi join to drain your battery mid-read.")
 
+    -- Auto-merge after sync
+    local auto_merge_help = _("Automatically merge reading-progress conflicts after every Quick Sync completes.\n\n"
+                           .. "For each KOReader metadata conflict, the copy with the higher reading progress wins. "
+                           .. "Non-metadata files are skipped.\n\n"
+                           .. "A brief notification appears when merges are performed or when a merge fails. "
+                           .. "Disabled by default — enable only after you are comfortable with the manual "
+                           .. "Auto-merge progress action in Status & conflicts.")
+
     -- Periodic Quick Sync
     local periodic_sync_help = _("Automatically run a Quick Sync at regular intervals when the device is awake.\n\n"
                         .. "Works silently in the background — no pop‑ups, no interruptions. "
@@ -1264,6 +1272,25 @@ local function getAutomationMenu(self)
                 }
                 UIManager:show(dlg)
                 dlg:onShowKeyboard()
+            end,
+            separator = true,
+        },
+        {
+            text_func = function()
+                return G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
+                    and _("Auto-merge conflicts after sync ✓")
+                    or  _("Auto-merge conflicts after sync")
+            end,
+            help_text      = auto_merge_help,
+            keep_menu_open = true,
+            checked_func   = function()
+                return G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
+            end,
+            hold_callback  = D.helpHold(auto_merge_help),
+            callback       = function(tmi)
+                local enabled = not G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
+                G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", enabled)
+                if tmi then tmi:updateItems() end
             end,
             separator = true,
         },
