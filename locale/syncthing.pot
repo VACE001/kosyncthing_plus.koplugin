@@ -40,11 +40,11 @@ msgstr ""
 msgid "  (only this device)"
 msgstr ""
 
-#: st_menu.lua:1792 st_menu.lua:2052
+#: st_menu.lua:1938 st_menu.lua:2226
 msgid " — tap to resolve"
 msgstr ""
 
-#: st_menu.lua:1797 st_menu.lua:2057
+#: st_menu.lua:1943 st_menu.lua:2231
 msgid " — tap to view"
 msgstr ""
 
@@ -52,16 +52,46 @@ msgstr ""
 msgid "Conflicts"
 msgstr ""
 
-#: st_menu.lua:1620
+#: st_menu.lua:1766
 msgid "Copy API key"
 msgstr ""
 
-#: st_menu.lua:1621
+#: st_menu.lua:1767
 msgid "Copy the Syncthing API key to the clipboard."
+msgstr ""
+
+#: st_update.lua:205
+msgid ""
+"Could not replace the old Syncthing binary.\n"
+"\n"
+"The plugin folder may be on a read-only filesystem."
+msgstr ""
+
+#: legacy.lua:413
+msgid ""
+"Could not replace the old legacy binary.\n"
+"\n"
+"The plugin folder may be on a read-only filesystem."
 msgstr ""
 
 #: st_menu.lua:747
 msgid "Devices"
+msgstr ""
+
+#: legacy.lua:337 st_update.lua:314
+msgid ""
+"Downloaded file is not the expected Linux tar.gz archive.\n"
+"\n"
+"Please try again."
+msgstr ""
+
+#: legacy.lua:328 st_update.lua:284
+msgid ""
+"Downloaded file is too small to be a Syncthing archive.\n"
+"\n"
+"Actual: %1\n"
+"\n"
+"Please try again."
 msgstr ""
 
 #: st_menu.lua:625
@@ -76,23 +106,44 @@ msgstr ""
 msgid "Folders"
 msgstr ""
 
-#: st_menu.lua:1412
+#: st_menu.lua:1439
 msgid "Logs"
 msgstr ""
 
-#: st_menu.lua:1631
+#: st_menu.lua:1777
 msgid "No API key found. Make sure Syncthing has been started at least once, or enter it in the connection settings."
 msgstr ""
 
-#: st_menu.lua:1623
+#: st_menu.lua:1769
 msgid "The API key gives full access to Syncthing's settings via its REST API. Keep it secret."
 msgstr ""
 
-#: st_menu.lua:1415
+#: legacy.lua:363 st_update.lua:155
+msgid ""
+"The downloaded archive did not contain a valid Linux Syncthing binary.\n"
+"\n"
+"Please try again."
+msgstr ""
+
+#: st_update.lua:188
+msgid ""
+"The downloaded binary could not be made executable.\n"
+"\n"
+"The plugin folder may be on a filesystem mounted without execute permission."
+msgstr ""
+
+#: legacy.lua:402 st_update.lua:193
+msgid ""
+"The installed file is not a valid Linux executable.\n"
+"\n"
+"Please try the download again."
+msgstr ""
+
+#: st_menu.lua:1442
 msgid "View the full log, show only errors, or delete the log file to free space."
 msgstr ""
 
-#: st_menu.lua:1413
+#: st_menu.lua:1440
 msgid "View, filter, or clear the Syncthing log."
 msgstr ""
 
@@ -100,7 +151,7 @@ msgstr ""
 msgid "…and %1 more (use bulk resolve)"
 msgstr ""
 
-#: st_menu.lua:1590
+#: st_menu.lua:1736
 msgid "(empty)"
 msgstr ""
 
@@ -195,7 +246,7 @@ msgid ""
 "Use Resolve all to apply one strategy to every conflict at once, or tap an individual conflict to choose for each one."
 msgstr ""
 
-#: st_update.lua:381
+#: st_update.lua:426
 msgid ""
 "A new version is available!\n"
 "\n"
@@ -242,7 +293,7 @@ msgid ""
 "Syncthing will begin syncing shortly."
 msgstr ""
 
-#: st_menu.lua:1611
+#: st_menu.lua:1757
 msgid "All API errors cleared."
 msgstr ""
 
@@ -250,11 +301,11 @@ msgstr ""
 msgid "All folders paused"
 msgstr ""
 
-#: st_menu.lua:2220
+#: st_menu.lua:2394
 msgid "always"
 msgstr ""
 
-#: st_menu.lua:1593
+#: st_menu.lua:1739
 msgid "API errors (%1)"
 msgstr ""
 
@@ -262,11 +313,11 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
-#: st_menu.lua:1274
+#: st_menu.lua:1301
 msgid "Apply automation only when charging"
 msgstr ""
 
-#: st_menu.lua:1273
+#: st_menu.lua:1300
 msgid "Apply automation only when charging ✓"
 msgstr ""
 
@@ -289,7 +340,7 @@ msgid ""
 "Both options are safe and can be re-applied at any time."
 msgstr ""
 
-#: st_update.lua:359
+#: st_update.lua:404
 msgid ""
 "Architecture detection warning\n"
 "\n"
@@ -317,7 +368,7 @@ msgstr ""
 msgid "Auto-merge progress"
 msgstr ""
 
-#: st_menu.lua:1153
+#: st_menu.lua:1161
 msgid ""
 "Automatically run a Quick Sync at regular intervals when the device is awake.\n"
 "\n"
@@ -340,7 +391,7 @@ msgid ""
 "Best for users who want continuous background sync without wasting resources when offline."
 msgstr ""
 
-#: st_menu.lua:2224
+#: st_menu.lua:2398
 msgid "Automation"
 msgstr ""
 
@@ -351,32 +402,32 @@ msgid ""
 "Useful when you have a large library and don't want an unexpected Wi-Fi join to drain your battery mid-read."
 msgstr ""
 
-#: st_menu.lua:2223
+#: st_menu.lua:2397
 msgid "Automation: %1"
 msgstr ""
 
-#: st_menu.lua:1181
+#: st_menu.lua:1189
 msgid "Autostart Syncthing"
 msgstr ""
 
-#: st_menu.lua:1180
+#: st_menu.lua:1188
 msgid "Autostart Syncthing ✓"
 msgstr ""
 
-#: legacy.lua:344
+#: legacy.lua:357
 msgid "Binary not found inside the downloaded archive. Please try again."
 msgstr ""
 
-#: st_menu.lua:1590
+#: st_menu.lua:1736
 msgid "Body"
 msgstr ""
 
-#: legacy.lua:646 legacy.lua:683 legacy.lua:749 legacy.lua:793
+#: legacy.lua:678 legacy.lua:715 legacy.lua:781 legacy.lua:825
 #: st_android.lua:440 st_conflict.lua:106 st_menu.lua:108 st_menu.lua:556
-#: st_menu.lua:877 st_menu.lua:913 st_menu.lua:1024 st_menu.lua:1239
-#: st_menu.lua:1399 st_menu.lua:1652 st_menu.lua:1682 st_pair.lua:220
+#: st_menu.lua:877 st_menu.lua:913 st_menu.lua:1024 st_menu.lua:1247
+#: st_menu.lua:1426 st_menu.lua:1798 st_menu.lua:1828 st_pair.lua:220
 #: st_pair.lua:411 st_reset.lua:249 st_reset.lua:265 st_reset.lua:276
-#: st_settings.lua:44 st_settings.lua:65 st_settings.lua:134 st_update.lua:369
+#: st_settings.lua:44 st_settings.lua:65 st_settings.lua:134 st_update.lua:414
 msgid "Cancel"
 msgstr ""
 
@@ -399,7 +450,7 @@ msgstr ""
 msgid "Cannot use this path — it is a system directory."
 msgstr ""
 
-#: legacy.lua:812
+#: legacy.lua:844
 msgid ""
 "Change the legacy Syncthing version.\n"
 "\n"
@@ -419,22 +470,22 @@ msgid ""
 "Stop Syncthing now and continue?"
 msgstr ""
 
-#: st_menu.lua:1730
+#: st_menu.lua:1876
 msgid "Check for updates"
 msgstr ""
 
-#: st_menu.lua:1729
+#: st_menu.lua:1875
 msgid "Check for updates  (v%1 installed)"
 msgstr ""
 
-#: st_menu.lua:1306
+#: st_menu.lua:1333
 msgid ""
 "Check GitHub for a newer Syncthing binary and install it if available.\n"
 "\n"
 "Wi-Fi is required. The currently installed version is shown in the menu label."
 msgstr ""
 
-#: st_update.lua:422
+#: st_update.lua:467
 msgid ""
 "Checking for updates…\n"
 "\n"
@@ -456,7 +507,7 @@ msgid ""
 "The memory and CPU limits are applied at the process level and take full effect after a restart. Additional fine-grained folder and device settings can be applied separately with 'Apply resource tweaks'."
 msgstr ""
 
-#: st_menu.lua:1160
+#: st_menu.lua:1168
 msgid ""
 "Choose how often to run the periodic Quick Sync, in minutes.\n"
 "\n"
@@ -478,19 +529,19 @@ msgstr ""
 msgid "Cleaning…"
 msgstr ""
 
-#: st_menu.lua:1602
+#: st_menu.lua:1748
 msgid "Clear all API errors"
 msgstr ""
 
-#: st_menu.lua:1387
+#: st_menu.lua:1414
 msgid "Clear log file"
 msgstr ""
 
-#: st_utils.lua:81
+#: st_utils.lua:112
 msgid "Clipboard not supported on this device."
 msgstr ""
 
-#: st_menu.lua:591 st_menu.lua:697 st_menu.lua:815 st_menu.lua:1901
+#: st_menu.lua:591 st_menu.lua:697 st_menu.lua:815 st_menu.lua:2075
 msgid "Close"
 msgstr ""
 
@@ -511,7 +562,7 @@ msgid ""
 "Keep this conflict copy as the new file, or discard it?"
 msgstr ""
 
-#: st_menu.lua:2031
+#: st_menu.lua:2205
 msgid ""
 "Connect new devices, set the Web GUI password, change the Web GUI port, and adjust resource and network settings.\n"
 "\n"
@@ -530,7 +581,7 @@ msgstr ""
 msgid "Continuously sync files with other devices in a peer-to-peer manner."
 msgstr ""
 
-#: st_utils.lua:77
+#: st_utils.lua:108
 msgid "Copied to clipboard."
 msgstr ""
 
@@ -548,7 +599,7 @@ msgid ""
 "%1"
 msgstr ""
 
-#: st_process.lua:410
+#: st_process.lua:447
 msgid ""
 "Could not bring up the loopback network interface.\n"
 "\n"
@@ -569,13 +620,13 @@ msgid ""
 "%1"
 msgstr ""
 
-#: st_update.lua:169
+#: st_update.lua:166
 msgid ""
 "Could not create plugin directory.\n"
 "Check file system permissions."
 msgstr ""
 
-#: st_process.lua:458
+#: st_process.lua:495
 msgid ""
 "Could not create settings directory for Syncthing.\n"
 "Check file system permissions."
@@ -589,14 +640,14 @@ msgid ""
 "This conflict file will need to be resolved manually."
 msgstr ""
 
-#: st_update.lua:186
+#: st_update.lua:181
 msgid ""
 "Could not install the binary into the plugin folder.\n"
 "\n"
 "The folder may be on a read-only filesystem."
 msgstr ""
 
-#: legacy.lua:360
+#: legacy.lua:376
 msgid ""
 "Could not install the legacy binary.\n"
 "\n"
@@ -610,18 +661,18 @@ msgid ""
 "The daemon may still be starting up — wait a moment and try again."
 msgstr ""
 
-#: st_update.lua:314
+#: st_update.lua:356
 msgid ""
 "Could not read release information from GitHub.\n"
 "\n"
 "The response may have been malformed."
 msgstr ""
 
-#: st_process.lua:974
+#: st_process.lua:1011
 msgid "Could not read Syncthing configuration."
 msgstr ""
 
-#: st_process.lua:841
+#: st_process.lua:878
 msgid ""
 "Could not read Syncthing configuration.\n"
 "\n"
@@ -675,7 +726,7 @@ msgid ""
 "Try rebooting your device, then try again."
 msgstr ""
 
-#: st_process.lua:384
+#: st_process.lua:421
 msgid ""
 "Could not write the Web GUI password to Syncthing's config.\n"
 "\n"
@@ -684,7 +735,7 @@ msgid ""
 "Not starting Syncthing — the GUI would be exposed without authentication."
 msgstr ""
 
-#: st_menu.lua:2025
+#: st_menu.lua:2199
 msgid ""
 "Dashboard showing what Syncthing is doing right now: per-folder state, connected remote devices, and any sync conflicts.\n"
 "\n"
@@ -693,7 +744,7 @@ msgid ""
 "If two devices change the same file before they could sync, you'll find conflicts here to resolve."
 msgstr ""
 
-#: st_menu.lua:1665
+#: st_menu.lua:1811
 msgid ""
 "Database reset.\n"
 "\n"
@@ -704,11 +755,11 @@ msgstr ""
 msgid "Default: syncthing"
 msgstr ""
 
-#: st_menu.lua:1398
+#: st_menu.lua:1425
 msgid "Delete log"
 msgstr ""
 
-#: st_menu.lua:1648
+#: st_menu.lua:1794
 msgid ""
 "Delete the local Syncthing database?\n"
 "\n"
@@ -717,7 +768,7 @@ msgid ""
 "First sync after this may be slow."
 msgstr ""
 
-#: st_menu.lua:1312
+#: st_menu.lua:1339
 msgid ""
 "Delete the local Syncthing index so it is rebuilt from scratch on the next start.\n"
 "\n"
@@ -726,14 +777,14 @@ msgid ""
 "First sync after a reset will be slower than usual."
 msgstr ""
 
-#: st_menu.lua:1397
+#: st_menu.lua:1424
 msgid ""
 "Delete the Syncthing log file?\n"
 "\n"
 "A new log will be created automatically on the next start."
 msgstr ""
 
-#: st_menu.lua:1304
+#: st_menu.lua:1331
 msgid ""
 "Delete the Syncthing log file.\n"
 "\n"
@@ -780,11 +831,11 @@ msgid ""
 "Tap a device to accept or ignore it; tap a folder to accept it."
 msgstr ""
 
-#: legacy.lua:792
+#: legacy.lua:824
 msgid "Disable"
 msgstr ""
 
-#: legacy.lua:790
+#: legacy.lua:822
 msgid ""
 "Disable legacy mode?\n"
 "\n"
@@ -795,7 +846,7 @@ msgstr ""
 msgid "Discard it"
 msgstr ""
 
-#: main.lua:153
+#: main.lua:154
 msgid "Dismiss"
 msgstr ""
 
@@ -803,33 +854,33 @@ msgstr ""
 msgid "Don't ask again"
 msgstr ""
 
-#: st_process.lua:1151
+#: st_process.lua:1188
 msgid "Download"
 msgstr ""
 
-#: st_menu.lua:1308
+#: st_menu.lua:1335
 msgid ""
 "Download and install the Syncthing binary for this device's platform.\n"
 "\n"
 "Wi-Fi is required."
 msgstr ""
 
-#: st_update.lua:368
+#: st_update.lua:413
 msgid "Download anyway"
 msgstr ""
 
-#: legacy.lua:316 st_update.lua:248
+#: legacy.lua:321 st_update.lua:271
 msgid ""
 "Download failed.\n"
 "\n"
 "Please check your Wi-Fi connection and try again."
 msgstr ""
 
-#: legacy.lua:848
+#: legacy.lua:880
 msgid "Download legacy binary (%1)"
 msgstr ""
 
-#: st_update.lua:266
+#: st_update.lua:299
 msgid ""
 "Downloaded file size is unexpected.\n"
 "\n"
@@ -839,7 +890,7 @@ msgid ""
 "The download may be corrupt. Please try again."
 msgstr ""
 
-#: legacy.lua:282
+#: legacy.lua:275
 msgid ""
 "Downloading Syncthing %1…\n"
 "\n"
@@ -847,7 +898,7 @@ msgid ""
 "Please do not close KOReader."
 msgstr ""
 
-#: st_update.lua:228
+#: st_update.lua:246
 msgid ""
 "Downloading Syncthing v%1…\n"
 "\n"
@@ -855,7 +906,7 @@ msgid ""
 "Please do not close KOReader."
 msgstr ""
 
-#: legacy.lua:645
+#: legacy.lua:677
 msgid "Enable v1.2.2"
 msgstr ""
 
@@ -871,7 +922,7 @@ msgstr ""
 msgid "Everything is working as expected. No action needed."
 msgstr ""
 
-#: legacy.lua:328
+#: legacy.lua:345
 msgid "Extraction failed. The archive may be corrupt. Please try again."
 msgstr ""
 
@@ -893,7 +944,7 @@ msgid ""
 "Check file permissions."
 msgstr ""
 
-#: st_process.lua:938
+#: st_process.lua:975
 msgid ""
 "Failed to apply some performance settings.\n"
 "\n"
@@ -911,7 +962,7 @@ msgstr ""
 msgid "Failed to discard conflict copy: %1"
 msgstr ""
 
-#: st_process.lua:1031
+#: st_process.lua:1068
 msgid ""
 "Failed to reset some performance settings.\n"
 "\n"
@@ -975,7 +1026,7 @@ msgstr ""
 msgid "Full details"
 msgstr ""
 
-#: st_process.lua:340
+#: st_process.lua:377
 msgid ""
 "Home folder is not set or points to a system directory.\n"
 "\n"
@@ -990,11 +1041,11 @@ msgstr ""
 msgid "Informational status — neither good nor bad."
 msgstr ""
 
-#: st_menu.lua:1726 st_menu.lua:2121
+#: st_menu.lua:1872 st_menu.lua:2295
 msgid "Install Syncthing binary"
 msgstr ""
 
-#: st_menu.lua:1251
+#: st_menu.lua:1259
 msgid "Interval must be between 1 and 1440 minutes (24 hours)."
 msgstr ""
 
@@ -1030,7 +1081,7 @@ msgstr ""
 msgid "Last seen: %1"
 msgstr ""
 
-#: legacy.lua:616 legacy.lua:862 st_menu.lua:958 st_process.lua:1152
+#: legacy.lua:648 legacy.lua:894 st_menu.lua:958 st_process.lua:1189
 msgid "Later"
 msgstr ""
 
@@ -1038,7 +1089,7 @@ msgstr ""
 msgid "Leave empty to remove the password"
 msgstr ""
 
-#: legacy.lua:767
+#: legacy.lua:799
 msgid ""
 "Legacy mode runs an older Syncthing binary that is compatible with devices whose Linux kernel is older than 3.2.\n"
 "\n"
@@ -1049,7 +1100,7 @@ msgid ""
 "• v1.2.2   — kernels below 2.6.32 (e.g. Kindle PW1), limited API"
 msgstr ""
 
-#: legacy.lua:778
+#: legacy.lua:810
 msgid "Legacy mode: ON (%1)"
 msgstr ""
 
@@ -1061,26 +1112,26 @@ msgstr ""
 msgid "Legacy Syncthing ⚠"
 msgstr ""
 
-#: legacy.lua:819
+#: legacy.lua:851
 msgid "Legacy version: %1"
 msgstr ""
 
-#: st_menu.lua:1402
+#: st_menu.lua:1429
 msgid "Log file deleted."
 msgstr ""
 
-#: st_menu.lua:1346
+#: st_menu.lua:1373
 msgid "Log file is empty."
 msgstr ""
 
-#: st_menu.lua:2042
+#: st_menu.lua:2216
 msgid ""
 "Logs, updates, debug info, and reset options.\n"
 "\n"
 "Most users won't need anything in here. Useful when reporting bugs or recovering from a broken setup."
 msgstr ""
 
-#: st_menu.lua:2232
+#: st_menu.lua:2406
 msgid "Maintenance"
 msgstr ""
 
@@ -1115,7 +1166,7 @@ msgstr ""
 msgid "Never connected"
 msgstr ""
 
-#: st_menu.lua:1222
+#: st_menu.lua:1230
 msgid "next in %1 min"
 msgstr ""
 
@@ -1131,11 +1182,11 @@ msgstr ""
 msgid "No additional help is available for this item."
 msgstr ""
 
-#: st_menu.lua:1578
+#: st_menu.lua:1724
 msgid "No API errors recorded."
 msgstr ""
 
-#: st_update.lua:346
+#: st_update.lua:391
 msgid ""
 "No binary found for this device.\n"
 "\n"
@@ -1146,7 +1197,7 @@ msgid ""
 "github.com/syncthing/syncthing/releases"
 msgstr ""
 
-#: st_menu.lua:1379
+#: st_menu.lua:1406
 msgid "No errors found in the log."
 msgstr ""
 
@@ -1168,11 +1219,11 @@ msgid ""
 "Use the Syncthing Web GUI to add folders before pausing or resuming."
 msgstr ""
 
-#: st_menu.lua:1393
+#: st_menu.lua:1420
 msgid "No log file exists yet."
 msgstr ""
 
-#: st_menu.lua:1330 st_menu.lua:1361
+#: st_menu.lua:1357 st_menu.lua:1388
 msgid ""
 "No log file found yet.\n"
 "\n"
@@ -1202,7 +1253,7 @@ msgstr ""
 msgid "none yet"
 msgstr ""
 
-#: st_update.lua:414
+#: st_update.lua:459
 msgid ""
 "Not enough free space to download Syncthing.\n"
 "\n"
@@ -1214,7 +1265,7 @@ msgstr ""
 msgid "Not installed — use \"Install Syncthing binary\" below"
 msgstr ""
 
-#: st_update.lua:390
+#: st_update.lua:435
 msgid "Not now"
 msgstr ""
 
@@ -1235,7 +1286,7 @@ msgid ""
 "Or scan the QR code with another device."
 msgstr ""
 
-#: st_menu.lua:832 st_menu.lua:1915
+#: st_menu.lua:832 st_menu.lua:2089
 msgid "Pair with another device"
 msgstr ""
 
@@ -1295,7 +1346,7 @@ msgid ""
 "It will take effect the next time you start Syncthing."
 msgstr ""
 
-#: st_menu.lua:508 st_menu.lua:521 st_menu.lua:1588
+#: st_menu.lua:508 st_menu.lua:521 st_menu.lua:1734
 msgid "Path"
 msgstr ""
 
@@ -1303,11 +1354,11 @@ msgstr ""
 msgid "Path cannot be empty."
 msgstr ""
 
-#: st_menu.lua:1859 st_menu.lua:2174
+#: st_menu.lua:2033 st_menu.lua:2348
 msgid "Pause all %1 folders"
 msgstr ""
 
-#: st_menu.lua:1859 st_menu.lua:2175
+#: st_menu.lua:2033 st_menu.lua:2349
 msgid "Pause all folders"
 msgstr ""
 
@@ -1326,7 +1377,7 @@ msgid ""
 "Check the Web GUI to verify the folder state."
 msgstr ""
 
-#: st_menu.lua:2021
+#: st_menu.lua:2195
 msgid ""
 "Pause syncing on all folders, or resume them all.\n"
 "\n"
@@ -1354,30 +1405,30 @@ msgstr ""
 msgid "Pending folder \"%1\". Tap to accept."
 msgstr ""
 
-#: st_process.lua:943
+#: st_process.lua:980
 msgid ""
 "Performance settings applied.\n"
 "\n"
 "Changes take effect immediately."
 msgstr ""
 
-#: st_process.lua:1041
+#: st_process.lua:1078
 msgid "Performance settings are already on default values."
 msgstr ""
 
-#: st_process.lua:948
+#: st_process.lua:985
 msgid "Performance settings are already optimal."
 msgstr ""
 
-#: st_process.lua:1036
+#: st_process.lua:1073
 msgid "Performance settings reset to Syncthing defaults."
 msgstr ""
 
-#: st_menu.lua:2221
+#: st_menu.lua:2395
 msgid "periodic"
 msgstr ""
 
-#: st_menu.lua:1194
+#: st_menu.lua:1202
 msgid "Periodic Quick Sync"
 msgstr ""
 
@@ -1400,11 +1451,11 @@ msgstr ""
 msgid "Periodic sync finished with folder errors."
 msgstr ""
 
-#: st_orchestrator.lua:375
+#: st_orchestrator.lua:376
 msgid "Periodic sync skipped — Wi‑Fi unavailable."
 msgstr ""
 
-#: st_orchestrator.lua:331
+#: st_orchestrator.lua:332
 msgid "Periodic sync skipped: Syncthing is not installed."
 msgstr ""
 
@@ -1432,7 +1483,7 @@ msgstr ""
 msgid "Periodic sync: Wi-Fi disconnected."
 msgstr ""
 
-#: st_menu.lua:2036
+#: st_menu.lua:2210
 msgid ""
 "Pick when Syncthing starts and stops automatically.\n"
 "\n"
@@ -1441,7 +1492,7 @@ msgid ""
 "For most users this is the best balance between convenience and battery life: Syncthing runs only when needed, and your reading is never disturbed."
 msgstr ""
 
-#: st_update.lua:405
+#: st_update.lua:450
 msgid "Please connect to Wi-Fi before checking for updates."
 msgstr ""
 
@@ -1464,7 +1515,7 @@ msgstr ""
 msgid "Preparing…"
 msgstr ""
 
-#: st_menu.lua:2149
+#: st_menu.lua:2323
 msgid "Quick Sync"
 msgstr ""
 
@@ -1481,11 +1532,11 @@ msgstr ""
 msgid "Quick Sync finished with %1 folder error(s)."
 msgstr ""
 
-#: st_orchestrator.lua:103
+#: st_orchestrator.lua:104
 msgid "Quick Sync is already in progress."
 msgstr ""
 
-#: st_orchestrator.lua:216
+#: st_orchestrator.lua:217
 msgid "Quick Sync skipped — Wi‑Fi unavailable."
 msgstr ""
 
@@ -1525,7 +1576,7 @@ msgstr ""
 msgid "Quick Sync: Syncthing's API not responding."
 msgstr ""
 
-#: legacy.lua:846
+#: legacy.lua:878
 msgid "Re-download legacy binary (%1)"
 msgstr ""
 
@@ -1554,7 +1605,7 @@ msgstr ""
 msgid "Remove"
 msgstr ""
 
-#: st_menu.lua:1603
+#: st_menu.lua:1749
 msgid "Remove all stored API errors from memory."
 msgstr ""
 
@@ -1576,7 +1627,7 @@ msgid ""
 "This cannot be undone."
 msgstr ""
 
-#: st_menu.lua:1837 st_menu.lua:2147
+#: st_menu.lua:1983 st_menu.lua:2321
 msgid "Rescan all folders"
 msgstr ""
 
@@ -1598,7 +1649,7 @@ msgid ""
 "Your synced files on disk were not touched."
 msgstr ""
 
-#: st_menu.lua:1651
+#: st_menu.lua:1797
 msgid "Reset database"
 msgstr ""
 
@@ -1606,11 +1657,11 @@ msgstr ""
 msgid "Reset everything"
 msgstr ""
 
-#: st_menu.lua:1695
+#: st_menu.lua:1841
 msgid "Reset everything to factory defaults"
 msgstr ""
 
-#: st_menu.lua:1641
+#: st_menu.lua:1787
 msgid "Reset sync database"
 msgstr ""
 
@@ -1634,7 +1685,7 @@ msgstr ""
 msgid "Reset to defaults"
 msgstr ""
 
-#: st_menu.lua:1680
+#: st_menu.lua:1826
 msgid ""
 "Resetting the database requires stopping Syncthing.\n"
 "\n"
@@ -1674,19 +1725,19 @@ msgstr ""
 msgid "Resource profile: Normal"
 msgstr ""
 
-#: main.lua:152
+#: main.lua:153
 msgid "Restart KOReader"
 msgstr ""
 
-#: st_menu.lua:957 st_menu.lua:1708
+#: st_menu.lua:957 st_menu.lua:1854
 msgid "Restart Syncthing"
 msgstr ""
 
-#: st_menu.lua:1858 st_menu.lua:2170
+#: st_menu.lua:2032 st_menu.lua:2344
 msgid "Resume %1 paused folder(s)"
 msgstr ""
 
-#: st_menu.lua:2168
+#: st_menu.lua:2342
 msgid "Resume all %1 folders"
 msgstr ""
 
@@ -1705,7 +1756,7 @@ msgid ""
 "Check the Web GUI to verify the folder state."
 msgstr ""
 
-#: st_menu.lua:2012
+#: st_menu.lua:2186
 msgid ""
 "Run a one-shot sync: start Syncthing, scan your folders, exchange changes, then stop.\n"
 "\n"
@@ -1718,7 +1769,7 @@ msgid ""
 "Best for battery — saves you from leaving Syncthing running all day."
 msgstr ""
 
-#: st_menu.lua:882 st_menu.lua:1244 st_settings.lua:70 st_settings.lua:141
+#: st_menu.lua:882 st_menu.lua:1252 st_settings.lua:70 st_settings.lua:141
 msgid "Save"
 msgstr ""
 
@@ -1743,7 +1794,7 @@ msgstr ""
 msgid "Set password"
 msgstr ""
 
-#: st_menu.lua:2211
+#: st_menu.lua:2385
 msgid "Setup"
 msgstr ""
 
@@ -1766,33 +1817,33 @@ msgid ""
 "Manual actions always show feedback directly in the menu, regardless of this setting."
 msgstr ""
 
-#: st_menu.lua:1310
+#: st_menu.lua:1337
 msgid ""
 "Show details of the last failed Syncthing API request.\n"
 "\n"
 "Useful when reporting bugs. Becomes available only after an API call has failed."
 msgstr ""
 
-#: st_menu.lua:1165
+#: st_menu.lua:1173
 msgid "Show notifications"
 msgstr ""
 
-#: st_menu.lua:1355
+#: st_menu.lua:1382
 msgid "Show only the warning and error lines from the Syncthing log, filtering out routine information."
 msgstr ""
 
-#: st_menu.lua:814 st_menu.lua:1900 st_pair.lua:219
+#: st_menu.lua:814 st_menu.lua:2074 st_pair.lua:219
 msgid "Show QR code"
 msgstr ""
 
-#: st_menu.lua:792 st_menu.lua:1891
+#: st_menu.lua:792 st_menu.lua:2065
 msgid ""
 "Show the address to open the Syncthing Web GUI from any browser on the same Wi-Fi.\n"
 "\n"
 "The Web GUI is where you add folders, configure ignore patterns, and tweak advanced options."
 msgstr ""
 
-#: st_menu.lua:1302
+#: st_menu.lua:1329
 msgid ""
 "Show the last lines of the Syncthing log.\n"
 "\n"
@@ -1821,7 +1872,7 @@ msgid ""
 "Tap-and-hold any specific row below for details, or open the relevant submenu."
 msgstr ""
 
-#: st_menu.lua:2122
+#: st_menu.lua:2296
 msgid "Start Syncthing"
 msgstr ""
 
@@ -1837,20 +1888,20 @@ msgstr ""
 msgid "Starting up…"
 msgstr ""
 
-#: st_menu.lua:509 st_menu.lua:522 st_menu.lua:1589
+#: st_menu.lua:509 st_menu.lua:522 st_menu.lua:1735
 msgid "Status"
 msgstr ""
 
-#: st_menu.lua:1809 st_menu.lua:1874 st_menu.lua:2087 st_menu.lua:2103
-#: st_menu.lua:2196
+#: st_menu.lua:1955 st_menu.lua:2048 st_menu.lua:2261 st_menu.lua:2277
+#: st_menu.lua:2370
 msgid "Status & conflicts"
 msgstr ""
 
-#: st_menu.lua:1874 st_menu.lua:2194
+#: st_menu.lua:2048 st_menu.lua:2368
 msgid "Status & conflicts (%1)"
 msgstr ""
 
-#: st_menu.lua:829 st_menu.lua:1916
+#: st_menu.lua:829 st_menu.lua:2090
 msgid ""
 "Step-by-step wizard: shows your device ID and QR code, then watches for incoming pairing requests.\n"
 "\n"
@@ -1861,15 +1912,15 @@ msgstr ""
 msgid "Still watching for pairing request — %1 min remaining."
 msgstr ""
 
-#: st_menu.lua:912 st_menu.lua:1681 st_settings.lua:43
+#: st_menu.lua:912 st_menu.lua:1827 st_settings.lua:43
 msgid "Stop & continue"
 msgstr ""
 
-#: st_menu.lua:2122
+#: st_menu.lua:2296
 msgid "Stop Syncthing"
 msgstr ""
 
-#: st_menu.lua:1709
+#: st_menu.lua:1855
 msgid "Stop Syncthing and start it again. Useful when Syncthing is unresponsive or after changing resource settings."
 msgstr ""
 
@@ -1903,11 +1954,11 @@ msgstr ""
 msgid "Sync done — everything up to date"
 msgstr ""
 
-#: st_menu.lua:1233
+#: st_menu.lua:1241
 msgid "Sync interval (minutes)"
 msgstr ""
 
-#: st_menu.lua:1218
+#: st_menu.lua:1226
 msgid "Sync interval: %1 min"
 msgstr ""
 
@@ -1939,14 +1990,14 @@ msgstr ""
 msgid "Syncing… %1% (%2 remaining)"
 msgstr ""
 
-#: st_update.lua:155
+#: st_update.lua:150
 msgid ""
 "Syncthing binary not found inside the archive.\n"
 "\n"
 "This is unexpected — please report this to the plugin author."
 msgstr ""
 
-#: _meta.lua:10 st_menu.lua:2000 st_menu.lua:2243
+#: _meta.lua:10 st_menu.lua:2174 st_menu.lua:2417
 msgid "KOSyncthing+"
 msgstr ""
 
@@ -1954,11 +2005,11 @@ msgstr ""
 msgid "Syncthing has stopped. Pairing wizard cancelled."
 msgstr ""
 
-#: st_process.lua:705 st_process.lua:718
+#: st_process.lua:742 st_process.lua:755
 msgid "Syncthing is already stopped."
 msgstr ""
 
-#: st_update.lua:325
+#: st_update.lua:370
 msgid ""
 "Syncthing is already up to date.\n"
 "\n"
@@ -1974,11 +2025,11 @@ msgid ""
 "Set a password? You can change it anytime from the menu."
 msgstr ""
 
-#: st_menu.lua:2067
+#: st_menu.lua:2241
 msgid "Syncthing is not installed yet."
 msgstr ""
 
-#: st_process.lua:801
+#: st_process.lua:838
 msgid ""
 "Syncthing is not responding to stop signals.\n"
 "\n"
@@ -1995,19 +2046,19 @@ msgstr ""
 msgid "Syncthing is not running."
 msgstr ""
 
-#: st_menu.lua:1345
+#: st_menu.lua:1372
 msgid "Syncthing log"
 msgstr ""
 
-#: st_menu.lua:1378
+#: st_menu.lua:1405
 msgid "Syncthing log (errors only)"
 msgstr ""
 
-#: st_process.lua:827
+#: st_process.lua:864
 msgid "Syncthing must be running to apply performance settings."
 msgstr ""
 
-#: st_process.lua:960
+#: st_process.lua:997
 msgid "Syncthing must be running to reset performance settings."
 msgstr ""
 
@@ -2018,19 +2069,19 @@ msgid ""
 "Stop Syncthing now and continue?"
 msgstr ""
 
-#: st_process.lua:610
+#: st_process.lua:647
 msgid "Syncthing started"
 msgstr ""
 
-#: st_process.lua:771
+#: st_process.lua:808
 msgid "Syncthing stopped."
 msgstr ""
 
-#: st_update.lua:200
+#: st_update.lua:218
 msgid "Syncthing updated to v%1 and restarting…"
 msgstr ""
 
-#: st_update.lua:201
+#: st_update.lua:219
 msgid ""
 "Syncthing v%1 installed!\n"
 "\n"
@@ -2043,11 +2094,11 @@ msgid ""
 "Change it if you want the folder somewhere else."
 msgstr ""
 
-#: main.lua:624
+#: main.lua:625
 msgid "Syncthing: Pause / resume all folders"
 msgstr ""
 
-#: main.lua:618
+#: main.lua:619
 msgid "Syncthing: Quick Sync"
 msgstr ""
 
@@ -2055,22 +2106,22 @@ msgstr ""
 msgid "Tap any remaining conflicts to resolve them manually."
 msgstr ""
 
-#: st_menu.lua:1606
+#: st_menu.lua:1752
 msgid "Tap to clear all API errors from memory."
 msgstr ""
 
-#: st_menu.lua:1712
+#: st_menu.lua:1858
 msgid "Tap to restart Syncthing now."
 msgstr ""
 
-#: st_update.lua:137
+#: st_update.lua:139
 msgid ""
 "The downloaded archive is corrupt or extraction failed.\n"
 "\n"
 "Please try again."
 msgstr ""
 
-#: st_process.lua:302
+#: st_process.lua:339
 msgid ""
 "The installed Syncthing binary is incompatible with this device's architecture.\n"
 "\n"
@@ -2150,15 +2201,15 @@ msgid ""
 "Enable \"Autostart Syncthing\" or \"Periodic Quick Sync\" first."
 msgstr ""
 
-#: st_menu.lua:1205
+#: st_menu.lua:1213
 msgid "Tip: Set 'Action when Wi‑Fi is off' to 'turn on' in KOReader Network settings for fully automatic sync."
 msgstr ""
 
-#: main.lua:611
+#: main.lua:612
 msgid "Toggle Syncthing"
 msgstr ""
 
-#: st_menu.lua:2007
+#: st_menu.lua:2181
 msgid ""
 "Turn Syncthing on or off.\n"
 "\n"
@@ -2189,11 +2240,11 @@ msgstr ""
 msgid "Up to date · no devices online"
 msgstr ""
 
-#: st_update.lua:389
+#: st_update.lua:434
 msgid "Update"
 msgstr ""
 
-#: st_update.lua:305
+#: st_update.lua:347
 msgid ""
 "Update check failed.\n"
 "\n"
@@ -2204,7 +2255,7 @@ msgstr ""
 msgid "Use ALL theirs"
 msgstr ""
 
-#: st_menu.lua:1357
+#: st_menu.lua:1384
 msgid "Useful for diagnosing problems without scrolling through the entire log."
 msgstr ""
 
@@ -2216,7 +2267,7 @@ msgstr ""
 msgid "v1.2.2 — very old kernels < 2.6.32 (limited features)"
 msgstr ""
 
-#: legacy.lua:676
+#: legacy.lua:708
 msgid "v1.2.2 (very old kernels)"
 msgstr ""
 
@@ -2224,19 +2275,19 @@ msgstr ""
 msgid "v1.27.12 — kernels 2.6.32–3.1 (recommended, full API)"
 msgstr ""
 
-#: st_menu.lua:1568
+#: st_menu.lua:1714
 msgid "View API errors"
 msgstr ""
 
-#: st_menu.lua:1567
+#: st_menu.lua:1713
 msgid "View API errors (%1)"
 msgstr ""
 
-#: st_menu.lua:1354
+#: st_menu.lua:1381
 msgid "View errors only"
 msgstr ""
 
-#: st_menu.lua:1323
+#: st_menu.lua:1350
 msgid "View logs"
 msgstr ""
 
@@ -2248,7 +2299,7 @@ msgstr ""
 msgid "Waiting…"
 msgstr ""
 
-#: st_menu.lua:795 st_menu.lua:1890
+#: st_menu.lua:795 st_menu.lua:2064
 msgid "Web GUI access"
 msgstr ""
 
@@ -2268,7 +2319,7 @@ msgstr ""
 msgid "Web GUI username"
 msgstr ""
 
-#: st_process.lua:1143
+#: st_process.lua:1180
 msgid ""
 "Welcome to KOSyncthing+!\n"
 "\n"
@@ -2279,7 +2330,7 @@ msgid ""
 "Tap Download to fetch it now."
 msgstr ""
 
-#: st_menu.lua:1315
+#: st_menu.lua:1342
 msgid ""
 "Wipe Syncthing's config, database, password, device ID, and all plugin settings.\n"
 "\n"
@@ -2296,7 +2347,7 @@ msgstr ""
 msgid "Yes, replace it"
 msgstr ""
 
-#: main.lua:336
+#: main.lua:337
 msgid ""
 "Your device has an older kernel.\n"
 "\n"
@@ -2305,11 +2356,11 @@ msgid ""
 msgstr ""
 
 # --- AD-19: database relocation strings ---
-#: st_process.lua:628
+#: st_process.lua:665
 msgid "Syncthing's database is on internal storage for reliability on this device. The first scan may take a little longer — your files are not affected."
 msgstr ""
 
-#: st_menu.lua:289 st_process.lua:640
+#: st_menu.lua:289 st_process.lua:677
 msgid "This device's storage can make Syncthing's database unreliable, and no alternative partition has enough free space. Syncing may be unstable. Free up space on internal storage (e.g. /var/local) and restart Syncthing."
 msgstr ""
 
@@ -2367,19 +2418,19 @@ msgstr ""
 msgid "Open the Syncthing app, then Settings (or the Web GUI at 127.0.0.1:8384) and copy the API Key."
 msgstr ""
 
-#: st_menu.lua:1772
+#: st_menu.lua:1918
 msgid "Connect to the Syncthing app"
 msgstr ""
 
-#: st_menu.lua:1426 st_menu.lua:1930
+#: st_menu.lua:1453 st_menu.lua:2104
 msgid "Copy diagnostic info"
 msgstr ""
 
-#: st_menu.lua:1977
+#: st_menu.lua:2151
 msgid "Diagnostic info"
 msgstr ""
 
-#: st_menu.lua:1899
+#: st_menu.lua:2073
 msgid ""
 "Open this address in a browser on the same Wi-Fi:\n"
 "\n"
@@ -2388,35 +2439,35 @@ msgid ""
 "Or scan the QR code with another device."
 msgstr ""
 
-#: st_menu.lua:1822 st_menu.lua:1845
+#: st_menu.lua:1968 st_menu.lua:1991
 msgid "Rescan failed — is the Syncthing app running?"
 msgstr ""
 
-#: st_menu.lua:1822 st_menu.lua:1845
+#: st_menu.lua:1968 st_menu.lua:1991
 msgid "Rescan started."
 msgstr ""
 
-#: st_menu.lua:1773
+#: st_menu.lua:1919
 msgid "This plugin works alongside a Syncthing app (e.g. Syncthing-Fork) running on this device. Install and start it, then tap here to enter its API key."
 msgstr ""
 
-#: st_menu.lua:1800
+#: st_menu.lua:1946
 msgid "Open the status view: folder sync state, sync conflicts, and any pending devices or folders."
 msgstr ""
 
-#: st_menu.lua:1839
+#: st_menu.lua:1985
 msgid "Ask the Syncthing app to rescan every folder now, so recent file changes are detected and synced without waiting."
 msgstr ""
 
-#: st_menu.lua:1861
+#: st_menu.lua:2035
 msgid "Pause all folders to stop syncing temporarily (saves battery and data), or resume them again."
 msgstr ""
 
-#: st_menu.lua:1876
+#: st_menu.lua:2050
 msgid "View sync status and resolve sync conflicts — for example when the same book was annotated on two devices. Reading progress can be auto-merged."
 msgstr ""
 
-#: st_menu.lua:1931
+#: st_menu.lua:2105
 msgid "Show plugin state, the connection scheme and port, and recent API errors, and copy them to the clipboard for a bug report."
 msgstr ""
 
@@ -2424,7 +2475,7 @@ msgstr ""
 msgid "Syncthing app not reachable — open it to sync"
 msgstr ""
 
-#: st_menu.lua:1982
+#: st_menu.lua:2156
 msgid "Reset connection"
 msgstr ""
 
@@ -2432,7 +2483,7 @@ msgstr ""
 msgid "Reset"
 msgstr ""
 
-#: st_menu.lua:1983
+#: st_menu.lua:2157
 msgid "Forget the saved API key and reset the plugin's settings on this device, returning to the connect screen. The Syncthing app and its synced files are not affected."
 msgstr ""
 
@@ -2470,11 +2521,11 @@ msgstr ""
 msgid "Could not rescan \"%1\"."
 msgstr ""
 
-#: st_menu.lua:1836 st_menu.lua:2146
+#: st_menu.lua:1982 st_menu.lua:2320
 msgid "Fix errors"
 msgstr ""
 
-#: st_menu.lua:1795 st_menu.lua:2055
+#: st_menu.lua:1941 st_menu.lua:2229
 msgid " — tap to fix"
 msgstr ""
 
@@ -2498,7 +2549,7 @@ msgid ""
 "Syncthing must be running."
 msgstr ""
 
-#: legacy.lua:660
+#: legacy.lua:692
 msgid ""
 "Choose the Syncthing version for this device.\n"
 "\n"
@@ -2507,18 +2558,18 @@ msgid ""
 "v1.2.2 — very old kernels below 2.6.32 (e.g. Kindle PW1). All features remain available; a few newer tuning settings are skipped automatically."
 msgstr ""
 
-#: legacy.lua:742
+#: legacy.lua:774
 msgid "Choose version manually"
 msgstr ""
 
-#: st_menu.lua:1427
+#: st_menu.lua:1454
 msgid ""
 "Collect plugin state, version info, recent errors and log warnings into a QR code (scan with your phone) and copy to clipboard.\n"
 "\n"
 "Paste into a bug report or support request."
 msgstr ""
 
-#: st_process.lua:146
+#: st_process.lua:183
 msgid ""
 "Could not verify that the Syncthing binary matches this device's architecture.\n"
 "\n"
@@ -2526,18 +2577,18 @@ msgid ""
 "github.com/syncthing/syncthing/releases."
 msgstr ""
 
-#: st_menu.lua:1670
+#: st_menu.lua:1816
 msgid ""
 "Database reset completed with errors.\n"
 "\n"
 "Some index files could not be removed. Check the logs for details."
 msgstr ""
 
-#: st_menu.lua:1548
+#: st_menu.lua:1694
 msgid "Diagnostic info (also copied to clipboard)"
 msgstr ""
 
-#: legacy.lua:835
+#: legacy.lua:867
 msgid ""
 "Download the legacy Syncthing binary (%1) for this device.\n"
 "\n"
@@ -2546,7 +2597,7 @@ msgid ""
 "The two legacy versions share one file, so switching version requires downloading the newly selected one before it can start."
 msgstr ""
 
-#: st_process.lua:498
+#: st_process.lua:535
 msgid ""
 "Failed to launch the Syncthing process.\n"
 "\n"
@@ -2555,14 +2606,14 @@ msgid ""
 "Check Maintenance → View logs for details, or try re-downloading the binary."
 msgstr ""
 
-#: legacy.lua:613 legacy.lua:858
+#: legacy.lua:645 legacy.lua:890
 msgid ""
 "Legacy Syncthing %1 is installed and ready.\n"
 "\n"
 "Start it now?"
 msgstr ""
 
-#: legacy.lua:703
+#: legacy.lua:735
 msgid ""
 "Legacy mode lets Syncthing run on devices with a very old Linux kernel.\n"
 "\n"
@@ -2573,7 +2624,7 @@ msgid ""
 "The binary (~10–20 MB) will be downloaded — Wi-Fi is required."
 msgstr ""
 
-#: legacy.lua:715
+#: legacy.lua:747
 msgid ""
 "Legacy mode lets Syncthing run on devices with an older Linux kernel.\n"
 "\n"
@@ -2591,19 +2642,19 @@ msgid ""
 "Open this to set it up; the right version is detected for you. Devices with a newer kernel do not need this."
 msgstr ""
 
-#: legacy.lua:729
+#: legacy.lua:761
 msgid "Set up & download (%1)"
 msgstr ""
 
-#: legacy.lua:781
+#: legacy.lua:813
 msgid "Set up Legacy mode…"
 msgstr ""
 
-#: legacy.lua:615 legacy.lua:861
+#: legacy.lua:647 legacy.lua:893
 msgid "Start"
 msgstr ""
 
-#: st_process.lua:674
+#: st_process.lua:711
 msgid ""
 "Syncthing is taking too long to start (>12 seconds).\n"
 "\n"
@@ -2614,25 +2665,25 @@ msgid ""
 "Check Maintenance → View logs for details."
 msgstr ""
 
-#: legacy.lua:378
+#: legacy.lua:391
 msgid ""
 "The downloaded binary could not be made executable.\n"
 "\n"
 "The plugin folder may be on a filesystem mounted without execute permission (noexec). Try moving the plugin to internal storage."
 msgstr ""
 
-#: st_process.lua:323
+#: st_process.lua:360
 msgid ""
 "The selected legacy version (%1) has not been downloaded yet.\n"
 "\n"
 "Open Setup → Legacy Syncthing and download it before starting."
 msgstr ""
 
-#: st_menu.lua:1429
+#: st_menu.lua:1456
 msgid "Useful when reporting bugs. Shows a QR code you can scan with your phone to get the full diagnostic snapshot."
 msgstr ""
 
-#: legacy.lua:632
+#: legacy.lua:664
 msgid ""
 "v1.2.2 has an older, limited REST API.\n"
 "\n"
@@ -2645,39 +2696,35 @@ msgid ""
 "Continue?"
 msgstr ""
 
-#: legacy.lua:669
+#: legacy.lua:701
 msgid "v1.27.12"
 msgstr ""
 
-#: st_menu.lua (auto-merge after sync)
+#: st_menu.lua:1281 st_menu.lua:2005
 msgid "Auto-merge conflicts after sync ✓"
 msgstr ""
 
-#: st_menu.lua (auto-merge after sync)
+#: st_menu.lua:1282 st_menu.lua:2006
 msgid "Auto-merge conflicts after sync"
 msgstr ""
 
-#: st_menu.lua (auto-merge after sync help)
+#: st_menu.lua:1153 st_menu.lua:2008
 msgid ""
-"Automatically merge reading-progress conflicts after every Quick Sync "
-"completes.\n"
+"Automatically merge reading-progress conflicts after every Quick Sync completes.\n"
 "\n"
-"For each KOReader metadata conflict, the copy with the higher reading "
-"progress wins. Non-metadata files are skipped.\n"
+"For each KOReader metadata conflict, the copy with the higher reading progress wins. Non-metadata files are skipped.\n"
 "\n"
-"A brief notification appears when merges are performed or when a merge "
-"fails. Disabled by default — enable only after you are comfortable with "
-"the manual Auto-merge progress action in Status & conflicts."
+"A brief notification appears when merges are performed or when a merge fails. Disabled by default — enable only after you are comfortable with the manual Auto-merge progress action in Status & conflicts."
 msgstr ""
 
-#: st_orchestrator.lua (auto-merge notifications)
+#: st_orchestrator.lua:520
 msgid "Auto-merge reading progress failed."
 msgstr ""
 
-#: st_orchestrator.lua (auto-merge notifications)
+#: st_orchestrator.lua:528
 msgid "Auto-merge reading progress: %1 merged, %2 failed."
 msgstr ""
 
-#: st_orchestrator.lua (auto-merge notifications)
+#: st_orchestrator.lua:530
 msgid "Auto-merged reading progress: %1 conflict(s)."
 msgstr ""
