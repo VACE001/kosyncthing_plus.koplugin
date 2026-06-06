@@ -13,6 +13,7 @@ local NetworkMgr  = require("ui/network/manager")
 local InfoMessage = require("ui/widget/infomessage")
 local logger      = require("logger")
 local time 		  = require("ui/time")
+local T           = require("ffi/util").template
 local _           = require("syncthing_i18n").gettext
 local Guard       = require("st_guard")
 
@@ -497,6 +498,39 @@ local function runCloseStop(self)
     end
 end
 
+local function runSyncCompleted(self, _event)
+    if not G_reader_settings:isTrue("syncthing_auto_merge_conflicts") then
+        return
+    end
+    if type(self.findConflicts) ~= "function"
+            or type(self.autoMergeReadingProgress) ~= "function" then
+        return
+    end
+
+    local ok_conflicts, conflicts = pcall(self.findConflicts, self)
+    if not ok_conflicts then
+        logger.warn("[Syncthing] auto-merge conflict scan failed: " .. tostring(conflicts))
+        return
+    end
+    if type(conflicts) ~= "table" or #conflicts == 0 then return end
+
+    local ok_merge, stats = pcall(self.autoMergeReadingProgress, self, conflicts)
+    if not ok_merge then
+        logger.warn("[Syncthing] auto-merge failed: " .. tostring(stats))
+        self:showNotification(_("Auto-merge reading progress failed."), 5)
+        return
+    end
+    if type(stats) ~= "table" then return end
+
+    local merged = tonumber(stats.merged) or 0
+    local failed = tonumber(stats.failed) or 0
+    if failed > 0 then
+        self:showNotification(T(_("Auto-merge reading progress: %1 merged, %2 failed."), merged, failed), 5)
+    elseif merged > 0 then
+        self:showNotification(T(_("Auto-merged reading progress: %1 conflict(s)."), merged), 5)
+    end
+end
+
 return {
     runManualStart       = runManualStart,
     runManualStop        = runManualStop,
@@ -511,6 +545,7 @@ return {
     runNetworkDisconnected = runNetworkDisconnected,
     runCharging          = runCharging,
     runCloseStop         = runCloseStop,
+    runSyncCompleted     = runSyncCompleted,
     reconcile            = reconcile,
 
     -- Compatibility entry points used by menus, dispatcher, and public API.
@@ -522,4 +557,5 @@ return {
     onNetworkConnected   = runNetworkConnected,
     onNetworkDisconnected = runNetworkDisconnected,
     onCharging           = runCharging,
+    onSyncthingSyncCompleted = runSyncCompleted,
 }
