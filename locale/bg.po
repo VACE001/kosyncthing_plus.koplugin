@@ -2348,7 +2348,7 @@ msgstr "Спрете Syncthing и го стартирайте отново. По
 
 #: st_health.lua:95
 msgid "Stopped — tap to start"
-msgstr "Спряно — докоснете, за да стартираш"
+msgstr "Спряно — докоснете, за стартиране"
 
 #: st_pair.lua:126
 msgid ""
