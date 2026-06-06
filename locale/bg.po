@@ -3,8 +3,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: syncthing\n"
-"POT-Creation-Date: 2026-05-25 00:00+0000\n"
-"PO-Revision-Date: 2026-06-06 11:57+0300\n"
+"POT-Creation-Date: 2026-06-06 00:00+0000\n"
+"PO-Revision-Date: 2026-06-06 19:05+0300\n"
 "Last-Translator: \n"
 "Language-Team: Bulgarian\n"
 "Language: bg\n"
@@ -3303,3 +3303,45 @@ msgstr ""
 #: legacy.lua:669
 msgid "v1.27.12"
 msgstr "v1.27.12"
+
+#: st_menu.lua (auto-merge after sync)
+msgid "Auto-merge conflicts after sync ✓"
+msgstr "Автоматично обединяване на конфликти след синхронизация ✓"
+
+#: st_menu.lua (auto-merge after sync)
+msgid "Auto-merge conflicts after sync"
+msgstr "Автоматично обединяване на конфликти след синхронизация"
+
+#: st_menu.lua (auto-merge after sync help)
+msgid ""
+"Automatically merge reading-progress conflicts after every Quick Sync "
+"completes.\n"
+"\n"
+"For each KOReader metadata conflict, the copy with the higher reading "
+"progress wins. Non-metadata files are skipped.\n"
+"\n"
+"A brief notification appears when merges are performed or when a merge "
+"fails. Disabled by default — enable only after you are comfortable with "
+"the manual Auto-merge progress action in Status & conflicts."
+msgstr ""
+"Автоматично обединява конфликти в напредъка на четенето след всяка "
+"Бърза синхронизация.\n"
+"\n"
+"При всеки конфликт в метаданните на KOReader печели копието с по-висок "
+"напредък на четенето. Файловете без метаданни се пропускат.\n"
+"\n"
+"Показва кратко известие при извършено обединяване или при грешка. "
+"Изключено по подразбиране — активирайте само след като се запознаете с "
+"ръчното действие „Автообединяване на напредъка" в Статус и конфликти."
+
+#: st_orchestrator.lua (auto-merge notifications)
+msgid "Auto-merge reading progress failed."
+msgstr "Автоматичното обединяване на напредъка е неуспешно."
+
+#: st_orchestrator.lua (auto-merge notifications)
+msgid "Auto-merge reading progress: %1 merged, %2 failed."
+msgstr "Автоматично обединяване: %1 обединени, %2 неуспешни."
+
+#: st_orchestrator.lua (auto-merge notifications)
+msgid "Auto-merged reading progress: %1 conflict(s)."
+msgstr "Автоматично обединени: %1 конфликт(а)."
