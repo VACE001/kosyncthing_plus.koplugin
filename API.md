@@ -523,6 +523,15 @@ Examples:
 
 Fired after a Quick Sync completes.
 
+> **Note (v1.1.1+):** The plugin itself subscribes to this event via
+> `onSyncthingSyncCompleted` to run the opt-in auto-merge pass. Companion
+> plugin handlers receive the event after the internal handler has already
+> run, so any conflicts the auto-merge resolved will no longer appear in
+> `Syncthing.status.getConflicts()` by the time your handler fires.
+> If you need to act on *all* conflicts including those that are auto-merged,
+> subscribe to `SyncthingConflictDetected` instead, which fires earlier
+> (during the sync), before the completion event and before auto-merge runs.
+
 #### Event Arguments
 
 ```lua
