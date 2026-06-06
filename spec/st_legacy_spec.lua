@@ -100,6 +100,19 @@ local U = {
     getConfigDir = function() return "/cfg" end,
     invalidateDataDirCache = function() FAKE.data_dir_invalidated = true end,
     isLegacy = function() return SETTINGS["syncthing_use_legacy"] == true end,
+    -- Shared arch helper added in v1.1.1. The spec drives arch via withPopen
+    -- (mocked uname), so we provide the same uname-based implementation here.
+    detectArch = function()
+        local p = io.popen("uname -m 2>/dev/null")
+        if not p then return "arm", true, "unknown" end
+        local m = p:read("*l"); p:close()
+        if not m then return "arm", true, "unknown" end
+        m = m:gsub("^%s+", ""):gsub("%s+$", "")
+        if m == "aarch64" or m == "arm64" then return "arm64", false, m end
+        if m == "x86_64"                  then return "amd64", false, m end
+        if m:match("^i[3-6]86$")          then return "386",   false, m end
+        return "arm", m:match("^armv%d") == nil, m
+    end,
 }
 package.loaded["st_utils"] = U
 
