@@ -67,6 +67,7 @@ local LEGACY_VERSIONS = {
 }
 
 local Legacy = {}
+local MIN_ARCHIVE_SIZE = 1024 * 1024
 
 -- ---------------------------------------------------------------------------
 -- Detection
@@ -284,42 +285,65 @@ function Legacy.downloadBinary(self, version, callback)
         os.execute("rm -f '"  .. U.shellEscape(tmp_tar) .. "'")
         os.execute("rm -rf '" .. U.shellEscape(tmp_dir) .. "'")
 
-        -- Download: try wget (widely available), then curl (with cacert).
+        local function cleanup()
+            os.execute("rm -rf '" .. U.shellEscape(tmp_dir) .. "'")
+            os.execute("rm -f '"  .. U.shellEscape(tmp_tar) .. "'")
+            os.execute("rm -f '"  .. U.shellEscape(U.plugin_path .. "syncthing-legacy.new") .. "'")
+        end
+
+        local function fail_download(err_msg)
+            cleanup()
+            lease:release()
+            UIManager:show(InfoMessage:new{ icon = "notice-warning", text = err_msg })
+            if callback then callback(false, err_msg) end
+        end
+
+        -- Download: prefer curl for GitHub redirects/TLS, then fallback to wget.
         local dl_ok = false
-        local wget_cmd = string.format(
-            "wget -qO '%s' '%s' 2>/dev/null",
-            U.shellEscape(tmp_tar), U.shellEscape(url))
-        if U.execOk(os.execute(wget_cmd)) then
-            dl_ok = true
-        elseif U.curlAvailable() and U.cacertExists() then
+        if U.curlAvailable() and U.cacertExists() then
             local curl_cmd = string.format(
-                "curl -f -L -s --max-time 600 --cacert '%s' '%s' -o '%s'",
+                "curl -f -L -s --connect-timeout 30 --max-time 600 --retry 2 --retry-delay 2 --cacert '%s' '%s' -o '%s'",
                 U.shellEscape(U.cacert_path),
                 U.shellEscape(url),
                 U.shellEscape(tmp_tar))
             dl_ok = U.execOk(os.execute(curl_cmd))
         end
+        if not dl_ok then
+            local wget_cmd = string.format(
+                "wget -qO '%s' '%s' 2>/dev/null",
+                U.shellEscape(tmp_tar), U.shellEscape(url))
+            dl_ok = U.execOk(os.execute(wget_cmd))
+        end
 
         UIManager:close(msg)
 
         if not dl_ok then
-            os.execute("rm -f '" .. U.shellEscape(tmp_tar) .. "'")
-            lease:release()
             local err_msg = _("Download failed.\n\nPlease check your Wi-Fi connection and try again.")
-            UIManager:show(InfoMessage:new{ icon = "notice-warning", text = err_msg })
-            if callback then callback(false, err_msg) end
+            fail_download(err_msg)
+            return
+        end
+
+        local actual = U.fileSize(tmp_tar) or 0
+        if actual < MIN_ARCHIVE_SIZE then
+            local err_msg = T(_(
+                "Downloaded file is too small to be a Syncthing archive.\n\n" ..
+                "Actual: %1\n\nPlease try again."),
+                util.getFriendlySize(actual))
+            fail_download(err_msg)
+            return
+        end
+
+        if not U.isGzip(tmp_tar) then
+            local err_msg = _("Downloaded file is not the expected Linux tar.gz archive.\n\nPlease try again.")
+            fail_download(err_msg)
             return
         end
 
         -- Extract
         local extract_ok = Device:unpackArchive(tmp_tar, tmp_dir, true)
         if not extract_ok then
-            os.execute("rm -rf '" .. U.shellEscape(tmp_dir) .. "'")
-            os.execute("rm -f '"  .. U.shellEscape(tmp_tar) .. "'")
-            lease:release()
             local err_msg = _("Extraction failed. The archive may be corrupt. Please try again.")
-            UIManager:show(InfoMessage:new{ icon = "notice-warning", text = err_msg })
-            if callback then callback(false, err_msg) end
+            fail_download(err_msg)
             return
         end
 
@@ -330,28 +354,27 @@ function Legacy.downloadBinary(self, version, callback)
         if fp then fp:close() end
 
         if not binary_path or binary_path == "" then
-            os.execute("rm -rf '" .. U.shellEscape(tmp_dir) .. "'")
-            os.execute("rm -f '"  .. U.shellEscape(tmp_tar) .. "'")
-            lease:release()
             local err_msg = _("Binary not found inside the downloaded archive. Please try again.")
-            UIManager:show(InfoMessage:new{ icon = "notice-warning", text = err_msg })
-            if callback then callback(false, err_msg) end
+            fail_download(err_msg)
+            return
+        end
+
+        if not U.isELF(binary_path) then
+            local err_msg = _("The downloaded archive did not contain a valid Linux Syncthing binary.\n\nPlease try again.")
+            fail_download(err_msg)
             return
         end
 
         -- Atomically install as syncthing-legacy
         local dest   = U.plugin_path .. "syncthing-legacy"
+        local tmp_dest = dest .. ".new"
+        os.execute("rm -f '" .. U.shellEscape(tmp_dest) .. "'")
         local mv_ok  = U.execOk(os.execute(string.format(
-            "mv '%s' '%s'", U.shellEscape(binary_path), U.shellEscape(dest))))
-
-        os.execute("rm -rf '" .. U.shellEscape(tmp_dir) .. "'")
-        os.execute("rm -f '"  .. U.shellEscape(tmp_tar) .. "'")
+            "mv -f '%s' '%s'", U.shellEscape(binary_path), U.shellEscape(tmp_dest))))
 
         if not mv_ok then
-            lease:release()
             local err_msg = _("Could not install the legacy binary.\n\nThe plugin folder may be on a read-only filesystem.")
-            UIManager:show(InfoMessage:new{ icon = "notice-warning", text = err_msg })
-            if callback then callback(false, err_msg) end
+            fail_download(err_msg)
             return
         end
 
@@ -362,16 +385,33 @@ function Legacy.downloadBinary(self, version, callback)
         -- confusing 12 s start timeout with no hint of the real cause.
         -- Remove the file and surface a clear error instead.
         local chmod_ok = U.execOk(os.execute(
-            "chmod +x '" .. U.shellEscape(dest) .. "'"))
+            "chmod +x '" .. U.shellEscape(tmp_dest) .. "'"))
         if not chmod_ok then
-            os.execute("rm -f '" .. U.shellEscape(dest) .. "'")
             self:_invalidateBinaryCache()
-            lease:release()
             local err_msg = _(
                 "The downloaded binary could not be made executable.\n\n" ..
                 "The plugin folder may be on a filesystem mounted without " ..
                 "execute permission (noexec). Try moving the plugin to " ..
                 "internal storage.")
+            fail_download(err_msg)
+            return
+        end
+
+        if not U.isELF(tmp_dest) then
+            self:_invalidateBinaryCache()
+            local err_msg = _("The installed file is not a valid Linux executable.\n\nPlease try the download again.")
+            fail_download(err_msg)
+            return
+        end
+
+        local replace_ok = U.execOk(os.execute(string.format(
+            "mv -f '%s' '%s'", U.shellEscape(tmp_dest), U.shellEscape(dest))))
+        cleanup()
+
+        if not replace_ok then
+            self:_invalidateBinaryCache()
+            local err_msg = _("Could not replace the old legacy binary.\n\nThe plugin folder may be on a read-only filesystem.")
+            lease:release()
             UIManager:show(InfoMessage:new{ icon = "notice-warning", text = err_msg })
             if callback then callback(false, err_msg) end
             return
