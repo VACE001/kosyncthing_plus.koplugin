@@ -151,6 +151,21 @@ local function kindleClosePort(port)
     end
 end
 
+local function kindleOpenPortUDP(port)
+    local rule = string.format("INPUT -p udp --dport %s -j ACCEPT", port)
+    if not execOk(os.execute("iptables -C " .. rule .. " 2>/dev/null")) then
+        os.execute("iptables -A " .. rule .. " 2>/dev/null")
+    end
+end
+
+local function kindleClosePortUDP(port)
+    local max_attempts = 10
+    while max_attempts > 0 and execOk(os.execute(string.format(
+        "iptables -D INPUT -p udp --dport %s -j ACCEPT 2>/dev/null", port))) do
+        max_attempts = max_attempts - 1
+    end
+end
+
 local _curl_ok = nil
 local function curlAvailable()
     if _curl_ok ~= nil then return _curl_ok end
@@ -637,6 +652,8 @@ return {
     invalidateLoopbackCache   = invalidateLoopbackCache,
     kindleOpenPort            = kindleOpenPort,
     kindleClosePort           = kindleClosePort,
+    kindleOpenPortUDP         = kindleOpenPortUDP,
+    kindleClosePortUDP        = kindleClosePortUDP,
     curlAvailable             = curlAvailable,
     invalidateCurlCache       = invalidateCurlCache,
     cacertExists              = cacertExists,
