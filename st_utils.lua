@@ -63,6 +63,37 @@ local function shellEscape(s)
     return tostring(s):gsub("'", "'\\''")
 end
 
+-- Detect the userspace architecture for Syncthing release assets.
+-- LuaJIT reports the ABI KOReader itself is running under, which is the
+-- safest first choice on newer devices whose kernel uname can be unusual.
+local function detectArch()
+    local ok, jit = pcall(require, "jit")
+    if ok and type(jit) == "table" and type(jit.arch) == "string" then
+        local arch = jit.arch:lower()
+        if arch == "arm64" or arch == "arm64be" then
+            return "arm64", false, arch .. " (LuaJIT)"
+        elseif arch == "x64" then
+            return "amd64", false, arch .. " (LuaJIT)"
+        elseif arch == "x86" then
+            return "386", false, arch .. " (LuaJIT)"
+        elseif arch == "arm" or arch == "armbe" then
+            return "arm", false, arch .. " (LuaJIT)"
+        end
+    end
+
+    local p = io.popen("uname -m 2>/dev/null")
+    if not p then return "arm", true, "unknown" end
+    local m = p:read("*l")
+    p:close()
+    if not m then return "arm", true, "unknown" end
+    m = tostring(m):gsub("^%s+", ""):gsub("%s+$", "")
+    if m == "" then return "arm", true, "unknown" end
+    if m == "aarch64" or m == "arm64" then return "arm64", false, m end
+    if m == "x86_64"                  then return "amd64", false, m end
+    if m:match("^i[3-6]86$")          then return "386",   false, m end
+    return "arm", m:match("^armv%d") == nil, m
+end
+
 
 
 local function isValidDeviceID(s)
@@ -179,6 +210,8 @@ local ALL_SETTINGS_KEYS = {
     "syncthing_android_apikey",
     "syncthing_android_port",
     "syncthing_android_scheme",
+    -- Opt-in auto-merge after Quick Sync completes.
+    "syncthing_auto_merge_conflicts",
 }
 
 local function cacertExists()
@@ -596,6 +629,7 @@ return {
     getFreeSpace              = getFreeSpace,
 	getMountPoint			  = getMountPoint,
     shellEscape               = shellEscape,
+    detectArch                = detectArch,
     isValidDeviceID           = isValidDeviceID,
     copyToClipboard           = copyToClipboard,
     execOk                    = execOk,
