@@ -1,7 +1,6 @@
-
 # Test Suite
 
-407 tests across 13 spec files. No KOReader installation required — all
+427 tests across 13 spec files. No KOReader installation required — all
 platform modules are stubbed by the mock layer.
 
 ## Running
@@ -33,17 +32,17 @@ busted spec                      # all files (skips st_process_spec)
 | `st_sync_spec.lua` | Quick Sync: scan failure, disk-space abort, folder-error detection during idle wait | 3 |
 | `st_conflict_spec.lua` | Conflict auto-merge: file removal failure, path construction, `.sync-conflict` pattern matching | 20 |
 | `st_health_spec.lua` | `getFolderHealth`: paused/error/syncing/idle state derivation, need-bytes accounting, per-folder error aggregation | 41 |
-| `st_orchestrator_spec.lua` | Periodic sync scheduling, Wi-Fi lease cleanup, timer interaction | 35 |
+| `st_orchestrator_spec.lua` | Lifecycle orchestration: autostart/stop, manual toggle, periodic sync scheduling, suspend/resume, Wi-Fi lease cleanup, reconcile, **opt-in auto-merge after sync** (`runSyncCompleted`) | 44 |
 | `st_timer_spec.lua` | Periodic timer cancellation through the public API | 1 |
 | `st_guard_spec.lua` | Named lease idempotency, standby/wakelock balance, exception-path release | 25 |
-| `st_utils_spec.lua` | Path helpers, `isTransientFolderError`, `formatTime`, `getFriendlySize`, settings key catalogue | 54 |
+| `st_utils_spec.lua` | Path helpers, `isTransientFolderError`, `formatTime`, `getFriendlySize`, settings key catalogue, loopback detection, **`detectArch`** (LuaJIT path, `uname -m` fallback, unknown/failure cases) | 65 |
 | `st_android_spec.lua` | `androidApiCall` contract: status codes, JSON decode, error recording, TLS flag propagation | 25 |
 | `st_datadir_spec.lua` | Data-directory selection, legacy-path migration, FAT/FUSE detection | 11 |
 | `st_filesystem_spec.lua` | Safe-delete guard, dangerous-path rejection, conflict-file scanning, archive extraction | 36 |
 | `st_api_spec.lua` | `SafeClient` HTTP layer: GET/PUT/PATCH routing, error capture, cache invalidation | 33 |
-| `st_legacy_spec.lua` | Legacy-mode gate (`needsPatch`), `downloadBinary` URL construction, `patchSyncthingObject` read-modify-write shim | 69 |
+| `st_legacy_spec.lua` | Legacy-mode gate (`needsPatch`), `downloadBinary` URL/arch construction, `patchSyncthingObject` read-modify-write shim | 69 |
 | `st_process_spec.lua` | Binary lifecycle: `start`, `stop`, `kindlePortGuard`, `isRunning`, `safeHomeDir`, `applyNetworkSettings`, `stopPlugin` | 54 |
-| **Total** | | **407** |
+| **Total** | | **427** |
 
 ### Note on `st_process_spec` and Busted
 
@@ -71,4 +70,8 @@ first `before_each` fires. The plain runner in `run_tests.lua` does not use
 - `spec_helper.lua` / `mock_koreader.lua` provide the shared baseline.
   Specs that need narrower or conflicting behaviour override individual
   `package.loaded` entries before calling `require()`.
+- `detectArch` tests control `package.loaded["jit"]` directly (not `_G.jit`)
+  because `detectArch` uses `pcall(require, "jit")` which reads the module
+  cache, not the global — this matters when running under `texlua`/LuaTeX
+  where the real `jit` module is already cached at startup.
 - No network access, no filesystem writes, no real processes are started.
