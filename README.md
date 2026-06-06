@@ -304,6 +304,7 @@ version.  Factory reset and plugin removal clean up both directories.
 - **Re-entrancy guard** — a `_starting` / `_stopping` flag prevents two concurrent start or stop operations from racing on rapid taps.
 - **Clean shutdown** — sends `SIGTERM`, polls for up to 4 seconds, then sends `SIGKILL`. On device suspend, uses a synchronous 1-second sleep so the kernel does not pause Syncthing's I/O mid-flush.
 - **Silent start** — auto-start and periodic sync bypass the "Syncthing started" toast; only user-initiated starts show a notification.
+- **Auto-merge after sync** — opt-in setting in the Automation menu; after each Quick Sync, reading-progress conflicts are merged automatically (higher progress wins). Disabled by default.
 
 ### Maintenance
 
@@ -618,6 +619,8 @@ KOSyncthing+                                   ← top‑level entry
 │   ├── Periodic Quick Sync                  ← on/off; runs at chosen interval
 │   ├── Sync interval: X min  ·  next in Y min ← hidden when disabled;
 │   │   shows live countdown to next sync
+│   ├── Auto-merge conflicts after sync      ← opt-in; merges reading-progress
+│   │   conflicts automatically after every Quick Sync; off by default
 │   └── Apply automation only when charging  ← gates all automation; greyed
 │       out when no automation is active
 │
@@ -656,7 +659,7 @@ KOSyncthing+                                   ← top‑level entry
 ## Automation
 
 <details>
-<summary><b>Notifications, autostart, periodic sync, charging gate, dispatcher actions</b></summary>
+<summary><b>Notifications, autostart, periodic sync, auto-merge after sync, charging gate, dispatcher actions</b></summary>
 
 ### Show notifications
 
@@ -717,6 +720,21 @@ the plugin will switch Wi‑Fi off after a periodic sync.
 
 Opens a number picker to set the interval in minutes (1–1440).
 When Periodic Quick Sync is off, this row is greyed out.
+
+### Auto-merge conflicts after sync
+
+When enabled, every Quick Sync that completes triggers an automatic scan for
+reading-progress conflicts. For each KOReader metadata (`.sdr`) conflict, the
+copy with the higher `percent_finished` wins. Non-metadata files are skipped.
+
+- **Off by default.** Enable only once you are comfortable with the manual
+  *Auto-merge progress* action in Status & conflicts.
+- A brief notification appears only when merges actually occur or when one
+  fails — silent syncs that have no conflicts produce no notification.
+- The *Show notifications* master switch in this menu still applies; with
+  notifications off, no toast is shown even when merges happen.
+- Uses the same engine as the manual auto-merge action, so the result is
+  identical to running it by hand.
 
 ### Charging gate
 
@@ -851,6 +869,7 @@ All settings are stored in KOReader's `G_reader_settings` under the `syncthing_*
 | `syncthing_android_scheme` | string | `nil` | Android remote mode: scheme remembered after the first connect (`http` / `https`) |
 | `syncthing_periodic_sync_enabled` | bool | `false` | Enable periodic Quick Sync |
 | `syncthing_periodic_sync_interval_min` | number | `30` | Periodic sync interval (minutes, 1–1440) |
+| `syncthing_auto_merge_conflicts` | bool | `false` | Auto-merge reading-progress conflicts after every Quick Sync (v1.1.1+) |
 | `syncthing_settings_version` | number | — | Internal migration counter; do not edit |
 | `syncthing_password_dialog_seen` | bool | — | Suppresses the first-launch password prompt |
 | `syncthing_was_running` | bool | — | Internal flag: remembers daemon state across suspend/resume; do not edit |
