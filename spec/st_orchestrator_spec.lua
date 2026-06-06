@@ -515,3 +515,154 @@ describe("reconcile (belief refresh, no lifecycle side effects)", function()
         assert.are.equal(0, plugin.stop_calls)
     end)
 end)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Suite 8: runSyncCompleted (opt-in auto-merge after Quick Sync)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+describe("runSyncCompleted", function()
+    before_each(function()
+        Mock.reset()
+        G_reader_settings:delSetting("syncthing_auto_merge_conflicts")
+    end)
+
+    -- Helper: plugin stub with controllable conflict/merge behaviour.
+    local function makeAutoMergePlugin(overrides)
+        overrides = overrides or {}
+        local p = makePlugin(overrides)
+        p.findConflicts = overrides.findConflicts or function() return {} end
+        p.autoMergeReadingProgress = overrides.autoMergeReadingProgress
+            or function(_, _conflicts) return { merged = 0, failed = 0 } end
+        return p
+    end
+
+    it("does nothing when setting is off (default)", function()
+        local orch = freshOrchestrator()
+        local scanned = false
+        local plugin = makeAutoMergePlugin({
+            findConflicts = function() scanned = true return {} end,
+        })
+        orch.runSyncCompleted(plugin, {})
+        assert.is_false(scanned)
+        assert.are.equal(0, #Mock.state.notifications)
+    end)
+
+    it("does nothing when setting is explicitly false", function()
+        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", false)
+        local orch = freshOrchestrator()
+        local scanned = false
+        local plugin = makeAutoMergePlugin({
+            findConflicts = function() scanned = true return {} end,
+        })
+        orch.runSyncCompleted(plugin, {})
+        assert.is_false(scanned)
+    end)
+
+    it("is silent when setting is on but no conflicts exist", function()
+        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+        local orch = freshOrchestrator()
+        local plugin = makeAutoMergePlugin({
+            findConflicts = function() return {} end,
+        })
+        orch.runSyncCompleted(plugin, {})
+        assert.are.equal(0, #Mock.state.notifications)
+    end)
+
+    it("shows merge notification when conflicts are merged successfully", function()
+        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+        local orch = freshOrchestrator()
+        local plugin = makeAutoMergePlugin({
+            findConflicts = function()
+                return { "/books/book.sdr/metadata.sync-conflict-20240101-120000-ABC.lua" }
+            end,
+            autoMergeReadingProgress = function(_, _c)
+                return { merged = 1, failed = 0 }
+            end,
+        })
+        orch.runSyncCompleted(plugin, {})
+        assert.are.equal(1, #Mock.state.notifications)
+        -- notification should mention the count, not an error
+        assert.is_nil(Mock.state.notifications[1]:find("failed"))
+    end)
+
+    it("shows failure notification when some merges fail", function()
+        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+        local orch = freshOrchestrator()
+        local plugin = makeAutoMergePlugin({
+            findConflicts = function()
+                return {
+                    "/books/a.sdr/metadata.sync-conflict-A.lua",
+                    "/books/b.sdr/metadata.sync-conflict-B.lua",
+                }
+            end,
+            autoMergeReadingProgress = function(_, _c)
+                return { merged = 1, failed = 1 }
+            end,
+        })
+        orch.runSyncCompleted(plugin, {})
+        assert.are.equal(1, #Mock.state.notifications)
+        assert.is_not_nil(Mock.state.notifications[1]:find("failed") or
+                          Mock.state.notifications[1]:find("Failed"))
+    end)
+
+    it("warns and skips merge when autoMergeReadingProgress raises an error", function()
+        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+        local orch = freshOrchestrator()
+        local plugin = makeAutoMergePlugin({
+            findConflicts = function()
+                return { "/books/bad.sdr/metadata.sync-conflict-X.lua" }
+            end,
+            autoMergeReadingProgress = function(_, _c)
+                error("disk I/O failure")
+            end,
+        })
+        -- Should not propagate the error.
+        assert.has_no.errors(function()
+            orch.runSyncCompleted(plugin, {})
+        end)
+        -- One notification: the "failed" toast.
+        assert.are.equal(1, #Mock.state.notifications)
+    end)
+
+    it("warns and skips when findConflicts raises an error", function()
+        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+        local orch = freshOrchestrator()
+        local merged_called = false
+        local plugin = makeAutoMergePlugin({
+            findConflicts = function() error("scan error") end,
+            autoMergeReadingProgress = function(_, _c)
+                merged_called = true
+                return { merged = 0, failed = 0 }
+            end,
+        })
+        assert.has_no.errors(function()
+            orch.runSyncCompleted(plugin, {})
+        end)
+        assert.is_false(merged_called)
+        assert.are.equal(0, #Mock.state.notifications)
+    end)
+
+    it("is silent when merged=0 and failed=0 (no actionable conflicts)", function()
+        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+        local orch = freshOrchestrator()
+        local plugin = makeAutoMergePlugin({
+            findConflicts = function()
+                return { "/books/non-metadata.sync-conflict-X.bin" }
+            end,
+            autoMergeReadingProgress = function(_, _c)
+                return { merged = 0, failed = 0 }
+            end,
+        })
+        orch.runSyncCompleted(plugin, {})
+        assert.are.equal(0, #Mock.state.notifications)
+    end)
+
+    it("is a no-op when plugin lacks findConflicts", function()
+        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+        local orch = freshOrchestrator()
+        local p = makePlugin()   -- no findConflicts / autoMergeReadingProgress
+        assert.has_no.errors(function()
+            orch.runSyncCompleted(p, {})
+        end)
+        assert.are.equal(0, #Mock.state.notifications)
+    end)
+end)
