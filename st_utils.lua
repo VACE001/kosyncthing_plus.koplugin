@@ -118,6 +118,33 @@ local function execOk(ret)
     return ret == 0 or ret == true
 end
 
+local ELF_MAGIC = string.char(0x7f) .. "ELF"
+local GZIP_MAGIC = string.char(0x1f, 0x8b)
+
+local function fileHasPrefix(path, prefix)
+    local f = io.open(path, "rb")
+    if not f then return false end
+    local head = f:read(#prefix)
+    f:close()
+    return head == prefix
+end
+
+local function isELF(path)
+    return fileHasPrefix(path, ELF_MAGIC)
+end
+
+local function isGzip(path)
+    return fileHasPrefix(path, GZIP_MAGIC)
+end
+
+local function fileSize(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local size = f:seek("end")
+    f:close()
+    return size
+end
+
 local _loopback_checked = nil
 local function loopbackIsUp()
     if _loopback_checked ~= nil then return _loopback_checked end
@@ -648,6 +675,9 @@ return {
     isValidDeviceID           = isValidDeviceID,
     copyToClipboard           = copyToClipboard,
     execOk                    = execOk,
+    isELF                     = isELF,
+    isGzip                    = isGzip,
+    fileSize                  = fileSize,
     loopbackIsUp              = loopbackIsUp,
     invalidateLoopbackCache   = invalidateLoopbackCache,
     kindleOpenPort            = kindleOpenPort,
