@@ -1865,15 +1865,43 @@ local function getAndroidMenu(self)
         end,
         help_text      = _("Ask the Syncthing app to rescan every folder now, so recent file changes are detected and synced without waiting."),
         keep_menu_open = true,
-		callback = self.safe("Android rescan", function(tmi)
-			local ok = self:apiCall("db/scan", "POST")
-			self:_cacheInvalidate()
-			UIManager:show(InfoMessage:new{
-				text    = ok and _("Rescan started.") or _("Rescan failed — is the Syncthing app running?"),
-				timeout = 2,
-			})
-			if tmi and tmi.updateItems then tmi:updateItems() end
-		end),
+        callback = self.safe("Android rescan", function(tmi)
+            local ok = self:apiCall("db/scan", "POST")
+            self:_cacheInvalidate()
+            UIManager:show(InfoMessage:new{
+                text    = ok and _("Rescan started.") or _("Rescan failed — is the Syncthing app running?"),
+                timeout = 2,
+            })
+            if ok and G_reader_settings:isTrue("syncthing_auto_merge_conflicts") then
+                self:onSyncthingSyncCompleted()
+            end
+            if tmi and tmi.updateItems then tmi:updateItems() end
+        end),
+    }
+
+    -- Auto-merge conflicts after sync
+    sub[#sub + 1] = {
+        text_func = function()
+            return G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
+                and _("Auto-merge conflicts after sync ✓")
+                or  _("Auto-merge conflicts after sync")
+        end,
+        help_text      = _("Automatically merge reading-progress conflicts after every Quick Sync completes.\n\n"
+                         .. "For each KOReader metadata conflict, the copy with the higher reading progress wins. "
+                         .. "Non-metadata files are skipped.\n\n"
+                         .. "A brief notification appears when merges are performed or when a merge fails. "
+                         .. "Disabled by default — enable only after you are comfortable with the manual "
+                         .. "Auto-merge progress action in Status & conflicts."),
+        keep_menu_open = true,
+        checked_func   = function()
+            return G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
+        end,
+        callback       = function(tmi)
+            local enabled = not G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
+            G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", enabled)
+            if tmi and tmi.updateItems then tmi:updateItems() end
+        end,
+        separator      = true,
     }
 
     -- Pause / resume all folders.
