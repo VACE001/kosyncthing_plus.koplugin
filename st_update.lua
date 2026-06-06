@@ -307,9 +307,22 @@ local function _doFetchRelease(self, post_install_callback)
         return
     end
 
-    local latest_ver     = release.tag_name:match("v?(%d+%.%d+%.%d+)") or release.tag_name
-    local current_ver    = getCurrentVersion(self)
-    local is_new_install = not util.pathExists(U.plugin_path .. "syncthing")
+    local latest_ver  = release.tag_name:match("v?(%d+%.%d+%.%d+)") or release.tag_name
+    local current_ver = getCurrentVersion(self)
+
+    -- Treat a non-ELF file at the binary path (e.g. the Kobo appstream metadata
+    -- file named "syncthing" that some Kobo firmware versions place in the plugin
+    -- folder) as "not installed".  Using util.pathExists alone causes the update
+    -- flow to treat the text file as an existing installation, showing a confusing
+    -- "Installed: v?" confirm dialog instead of downloading silently.
+    local function _isELF(path)
+        local f = io.open(path, "rb")
+        if not f then return false end
+        local magic = f:read(4)
+        f:close()
+        return magic == "\x7fELF"
+    end
+    local is_new_install = not _isELF(U.plugin_path .. "syncthing")
 
     if not is_new_install and current_ver == latest_ver then
         UIManager:show(InfoMessage:new{
