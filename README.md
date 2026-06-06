@@ -13,7 +13,7 @@ KOSyncthing+ is a KOReader plugin that embeds a fully managed [Syncthing](https:
 - [Supported devices](#supported-devices)
 - [Android (remote mode)](#android-remote-mode)
 - [Installation](#installation)
-- [Migrating from koreader-syncthing or syncthing.koplugin](#migrating-from-koreader-syncthing-or-synthingkoplugin)
+- [Migrating from koreader-syncthing or syncthing.koplugin](#migrating-from-koreader-syncthing-or-syncthingkoplugin)
 - [First-time setup](#first-time-setup)
 - [Menu reference](#menu-reference)
 - [Automation](#automation)
