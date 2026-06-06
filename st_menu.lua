@@ -1498,12 +1498,9 @@ local function getMaintenanceMenu(self, touchmenu_instance)
 				if not util.pathExists(bin_path) then
 					ln("Not found at: " .. bin_path)
 				else
-					local f = io.open(bin_path, "rb")
-					if f then
-						local magic = f:read(4)
-						f:close()
-						local is_elf = (magic == "\x7fELF")
-						if not is_elf then
+					if U.isELF(bin_path) then
+						ln("Arch:       " .. (self:getBinaryArch() or "unknown"))
+					else
 							ln("Status:     NOT an ELF binary (text or corrupted)")
 							local f2 = io.open(bin_path, "r")
 							if f2 then
@@ -1513,9 +1510,6 @@ local function getMaintenanceMenu(self, touchmenu_instance)
 									ln("Preview:    " .. preview:gsub("\n", " "):gsub("%s+", " "):sub(1, 70))
 								end
 							end
-						else
-							ln("Arch:       " .. (self:getBinaryArch() or "unknown"))
-						end
 					end
 					local _lfs_ok, lfs = pcall(require, "libs/libkoreader-lfs")
 					if not _lfs_ok then pcall(require, "lfs") end
