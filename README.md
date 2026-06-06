@@ -13,6 +13,7 @@ KOSyncthing+ is a KOReader plugin that embeds a fully managed [Syncthing](https:
 - [Supported devices](#supported-devices)
 - [Android (remote mode)](#android-remote-mode)
 - [Installation](#installation)
+- [Migrating from koreader-syncthing or syncthing.koplugin](#migrating-from-koreader-syncthing-or-synthingkoplugin)
 - [First-time setup](#first-time-setup)
 - [Menu reference](#menu-reference)
 - [Automation](#automation)
@@ -429,6 +430,22 @@ that offers only the items above.
    | Android | `/koreader/plugins/` |
 
 3. Restart KOReader. The plugin appears as **KOSyncthing+** in **☰ → Tools**.
+
+### Migrating from koreader-syncthing or syncthing.koplugin
+
+Your existing Syncthing configuration migrates automatically — no need to re-pair devices or re-add folders.
+
+Both predecessor plugins store their configuration in the same location that KOSyncthing+ uses:
+
+```
+settings/syncthing/config.xml   ← device ID, folders, paired devices, API key
+settings/syncthing/cert.pem     ← TLS identity (device ID is derived from this)
+settings/syncthing/key.pem
+```
+
+When KOSyncthing+ starts for the first time it finds this directory and uses it as-is. Your device ID, all paired devices, all configured folders, and their sync states are preserved.
+
+The only manual step is downloading the Syncthing binary via **Maintenance → Download / update Syncthing**, since KOSyncthing+ manages its own copy of the binary separately from whichever binary the old plugin used.
 
 ---
 
