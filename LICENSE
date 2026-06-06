@@ -1,5 +1,5 @@
 KOSyncthing+ — a KOReader plugin that embeds a managed Syncthing daemon.
-Copyright (C) 2025-2026  d0nizam (https://github.com/d0nizam)
+Copyright (C) 2026  d0nizam (https://github.com/d0nizam)
 
 This plugin is derived from and builds upon the work of:
   - jasonchoimtt and contributors  (https://github.com/jasonchoimtt/koreader-syncthing)
