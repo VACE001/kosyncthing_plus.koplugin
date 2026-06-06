@@ -82,7 +82,7 @@ Quick Sync is the one-tap sync flow designed for e-readers that are not left run
    
 8. Stops Syncthing and releases the wakelock.
 
-9. Times out after 10 minutes with a warning if folders are still not idle.
+9. Times out after 30 minutes with a warning if folders are still not idle.
 
 A **wakelock** (`preventSuspend` / `allowSuspend`) is held for the entire Quick Sync so the device does not sleep mid-transfer.
 
@@ -1029,7 +1029,7 @@ kosyncthing_plus.koplugin/
 ├── st_sync.lua          quickSync; _startQuickSync (wakelock, disk space check,
 │                        db/scan, byte-transfer snapshot for accurate delta
 │                        reporting, _waitForIdle with adaptive polling and
-│                        10-min timeout); getFolderHealth (per-folder state
+│                        30-min timeout); getFolderHealth (per-folder state
 │                        snapshot + aggregates); findConflicts (with configurable
 │                        TTL and IgnoreRegistry); syncNow (rescan trigger);
 │                        setPauseAll; getMountPoint for accurate disk-space check
