@@ -1,5 +1,10 @@
 # Changelog
 
+## [v1.1.2] — 2026-06-06
+
+### Added
+- **Auto-merge conflicts after sync** — Android remote mode, menu.
+
 ## [v1.1.1] — 2026-06-06
 
 ### Added
