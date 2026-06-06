@@ -1,0 +1,2275 @@
+-- st_menu.lua — Top-level menu and submenus
+--
+-- Menu architecture (current):
+--
+--   Syncthing  ← top-level entry; label is a smart status header
+--   ├── Smart status line                  (read-only or tappable, context-aware)
+--   ├── Start / Stop / Install             (primary action, context-aware)
+--   ├── Quick Sync / Rescan all folders    (start, sync, stop — one button)
+--   ├── Pause all folders / Resume all     (dynamic label with paused count)
+--   │
+--   ├── Status & conflicts ▸               (dashboard + folders + devices + pending + conflicts)
+--   ├── Setup ▸                            (Web GUI, pair wizard, password, port, resource, network)
+--   ├── Automation ▸                       (notifications, auto-start, periodic sync, charging gate)
+--   ├── Maintenance ▸                      (logs, API errors, Copy API key, reset, restart, updates...)
+--
+-- Design principles enforced throughout this file:
+--   • Every menu item has a help_text describing what it does.
+--   • Every gated menu item (enabled_func) has a hold_callback explaining
+--     WHY it is currently disabled, surfaced via st_disabled.
+--   • Every user-facing message follows: "what happened — why — what to
+--     do next" where applicable.
+--   • Every callback that mutates state goes through self.safe() so a
+--     stray exception doesn't kill the menu.
+
+local DataStorage = require("datastorage")
+local Device      = require("device")
+local ConfirmBox  = require("ui/widget/confirmbox")
+local InfoMessage = require("ui/widget/infomessage")
+local InputDialog = require("ui/widget/inputdialog")
+local TextViewer  = require("ui/widget/textviewer")
+local UIManager   = require("ui/uimanager")
+local QRMessage   = require("ui/widget/qrmessage")
+local NetworkMgr  = require("ui/network/manager")
+local sort 		  = require("sort")
+local FS 		  = require("st_filesystem")
+local ffiutil     = require("ffi/util")
+local Event 	  = require("ui/event")
+local util        = require("util")
+local _rapidjson_ok, _rapidjson = pcall(require, "rapidjson")
+local JSON = _rapidjson_ok and _rapidjson or require("json")
+local T           = ffiutil.template
+
+local _    = require("syncthing_i18n").gettext
+local U    = require("st_utils")
+local D    = require("st_disabled")
+local Settings = require("st_settings")
+local path = DataStorage:getFullDataDir()
+
+local FOLDER_CACHE_TTL = U.FOLDER_CACHE_TTL
+
+---------------------------------------------------------------------------
+-- Folder state → human label
+---------------------------------------------------------------------------
+local STATE_LABELS = {
+    scanning                 = _("Scanning…"),
+    syncing                  = _("Syncing…"),
+    error                    = _("Error"),
+    unknown                  = _("Unknown"),
+    ["sync-preparing"]       = _("Preparing…"),
+    ["sync-waiting"]         = _("Waiting…"),
+    ["cleaning"]             = _("Cleaning…"),
+    ["clean-waiting"]        = _("Waiting…"),
+    ["prepare-scan"]         = _("Preparing scan…"),
+    ["waiting-for-scanning"] = _("Waiting…"),
+}
+
+local function humanizeFolderState(state, is_paused, has_errors, need_bytes)
+    if is_paused  then return _("Paused") end
+    if has_errors then return _("Error") end
+    if state == "idle" then
+        return (need_bytes and need_bytes > 0)
+            and T(_("Syncing… (%1 remaining)"), util.getFriendlySize(need_bytes))
+            or  _("Up to date")
+    end
+    local label = STATE_LABELS[state]
+    return label or (state or _("Unknown"))
+end
+
+---------------------------------------------------------------------------
+-- Status & conflicts submenu
+---------------------------------------------------------------------------
+
+-- Build the conflict-resolution rows: the headline "Resolve all …" bulk
+-- action (auto-merge / keep-mine / use-theirs) followed by one row per
+-- conflicting file (capped at 50).  Shared by the "Conflicts" door in the
+-- status menu and by the standalone view opened from the status header.
+local function buildConflictsItems(self, conflicts)
+    local items = {}
+
+    -- Bulk-resolve item with three strategies.  This is the headline
+    -- conflict-handling action: one tap, three buttons, all conflicts
+    -- handled.
+    local bulk_help = _("Apply one strategy to every conflict at once.\n\n"
+                     .. "Auto-merge is recommended for KOReader metadata files — it picks whichever copy has more reading progress.\n\n"
+                     .. "Keep ALL mine: discard every conflict copy, keep this device's version for each.\n"
+                     .. "Use ALL theirs: replace every local file with the conflict copy.")
+    table.insert(items, {
+        text           = T(_("Resolve all %1 conflicts…"), #conflicts),
+        help_text      = bulk_help,
+        hold_callback  = D.helpHold(bulk_help),
+        keep_menu_open = true,
+        callback       = self.safe("Bulk resolve", function(tmi)
+            UIManager:show(ConfirmBox:new{
+                text = T(_(
+                    "Resolve all %1 conflicts.\n\n"
+                    .. "Choose a strategy:"), #conflicts),
+                ok_text     = _("Auto-merge progress"),
+                cancel_text = _("Cancel"),
+                other_buttons = {{
+                    {
+                        text     = _("Keep ALL mine"),
+                        callback = function()
+                            local removed, failed = 0, 0
+                            for _, cp in ipairs(conflicts) do
+                                if FS.remove(cp) then
+                                    removed = removed + 1
+                                else
+                                    failed = failed + 1
+                                end
+                            end
+                            self:_cacheInvalidate()
+                            self:_invalidateConflictCache()
+                            if self._notifiers then self._notifiers.notifyConflictsChanged(nil) end
+                            if tmi then tmi:updateItems() end
+                            local parts = {}
+                            if removed > 0 then table.insert(parts, T(_("%1 removed"), removed)) end
+                            if failed > 0 then table.insert(parts, T(_("%1 failed"), failed)) end
+                            UIManager:show(InfoMessage:new{
+                                icon    = failed > 0 and "notice-warning" or nil,
+                                timeout = 3,
+                                text    = table.concat(parts, "; "),
+                            })
+                        end,
+                    },
+                    {
+                        text     = _("Use ALL theirs"),
+                        callback = function()
+                            local applied, skipped, failed = 0, 0, 0
+                            for _, cp in ipairs(conflicts) do
+                                local orig = require("st_conflict").deriveOriginalPath(cp)
+                                if orig == cp then
+                                    skipped = skipped + 1
+                                elseif FS.rename(cp, orig) then
+                                    applied = applied + 1
+                                else
+                                    failed = failed + 1
+                                end
+                            end
+                            self:_cacheInvalidate()
+                            self:_invalidateConflictCache()
+                            -- Let companion plugins know about the mass change.
+                            if self._notifiers then self._notifiers.notifyConflictsChanged(nil) end
+                            if tmi then tmi:updateItems() end
+                            local parts = {}
+                            if applied > 0 then table.insert(parts, T(_("%1 applied"), applied)) end
+                            if skipped > 0 then table.insert(parts, T(_("%1 skipped"), skipped)) end
+                            if failed > 0 then table.insert(parts, T(_("%1 failed"), failed)) end
+                            UIManager:show(InfoMessage:new{
+                                icon    = failed > 0 and "notice-warning" or nil,
+                                timeout = 3,
+                                text    = table.concat(parts, "; "),
+                            })
+                        end,
+                    },
+                }},
+                ok_callback = function()
+                    local stats = self:autoMergeReadingProgress(conflicts)
+                    if tmi then tmi:updateItems() end
+                    -- Build the message string outside the table
+                    local msg = T(_(
+                        "Auto-merge complete.\n\n"
+                        .. "Merged: %1 (kept newer reading progress)\n"
+                        .. "  • from this device: %2\n"
+                        .. "  • from other device: %3\n"
+                        .. "Skipped (not metadata or unreadable): %4"),
+                        -- Since we may have I/O errors on rename/remove, surface them if any.
+                        stats.merged, stats.kept_local, stats.kept_remote, stats.skipped)
+                    if stats.failed > 0 then
+                        msg = msg .. "\n" .. T(_("Failed (I/O error): %1"), stats.failed)
+                    end
+                    msg = msg .. "\n\n" .. _("Tap any remaining conflicts to resolve them manually.")
+                    UIManager:show(InfoMessage:new{
+                        timeout = 5,
+                        text    = msg,
+                    })
+                end,
+            })
+        end),
+    })
+
+    -- Per-file conflict list (capped at 50 to keep menus usable).
+    -- For larger conflict sets, the user uses Resolve all instead.
+    for i, conflict_path in ipairs(conflicts) do
+        if i > 50 then
+            table.insert(items, {
+                text          = T(_("…and %1 more (use bulk resolve)"), #conflicts - 50),
+                enabled_func  = function() return false end,
+                hold_callback = D.helpHold(_("More conflicts exist than can fit in the menu.\n\n"
+                                          .. "Use Resolve all conflicts at the top of this section to handle them in one go.")),
+            })
+            break
+        end
+        local label = conflict_path:match("/([^/]+)$") or conflict_path
+        table.insert(items, {
+            text           = "  " .. label,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(T(_(
+                "Sync conflict for: %1\n\n"
+                .. "Tap to choose: keep this device's version, use the other device's version, or open both for review."),
+                label)),
+            callback       = self.safe("Conflict resolve", function(tmi)
+                self:resolveConflict(conflict_path, tmi)
+            end),
+        })
+    end
+
+    return items
+end
+
+-- Open the conflict-resolution view directly (used by the ⚠ status header,
+-- which reads "tap to resolve").  No surrounding status menu — the user asked
+-- to resolve, so we take them straight to the bulk action and per-file rows.
+local function showConflicts(self)
+    local conflicts = self:findConflicts()
+    if #conflicts == 0 then return end
+    local TouchMenu = require("ui/widget/touchmenu")
+    UIManager:show(TouchMenu:new{
+        title      = _("Conflicts"),
+        item_table = buildConflictsItems(self, conflicts),
+    })
+end
+
+local function getStatusMenu(self, touchmenu_instance)
+    local sub = {}
+
+    -- Top of the submenu: the dashboard bullets from st_health.
+    -- Each bullet is a read-only summary row.  Tap-and-hold shows a longer
+    -- explanation of what that line means and what to do about it.
+    local bullets = self:getStatusBullets()
+
+    -- Map each severity to a one-paragraph explanation shown on tap-and-hold.
+    -- This way even read-only rows have meaningful "what does this mean?"
+    -- behavior instead of just sitting there inert.
+    local severity_help = {
+        ok    = _("Everything is working as expected. No action needed."),
+        warn  = _("Something needs your attention but isn't broken.\n\n"
+              .. "Tap-and-hold any specific row below for details, or open the relevant submenu."),
+        error = _("Something is broken and may need fixing.\n\n"
+              .. "Check the View logs item under Maintenance, or try Reset sync database if Syncthing is stuck."),
+        info  = _("Informational status — neither good nor bad."),
+    }
+
+    for __, b in ipairs(bullets) do
+        table.insert(sub, {
+            text          = b.symbol .. "  " .. b.text,
+            enabled_func  = function() return false end,
+            hold_callback = D.helpHold(severity_help[b.severity] or severity_help.info),
+        })
+    end
+    if #sub > 0 then sub[#sub].separator = true end
+
+    -- AD-19: database-location row, shown whenever the DB lives somewhere other
+    -- than the config dir (relocated off a hard_remove FUSE mount), or when no
+    -- safe location was found.  We compare directories rather than matching the
+    -- reason string, because after the first relocation the reason becomes
+    -- "sticky" on later runs — matching only "redirected" would make this row
+    -- vanish even though the DB is still relocated.  Passive (enabled_func=
+    -- false) so it never pops up or competes with dialogs; the explanation
+    -- lives on tap-and-hold in plain language (no "FUSE" jargon).
+    do
+        local ddir, dreason = U.getDataDir()
+        local cfg_dir = U.getConfigDir()
+        if ddir ~= cfg_dir then
+            table.insert(sub, {
+                text          = _("Database: on internal storage")
+                                .. (dreason == "redirected_tight" and "  (low space)" or ""),
+                enabled_func  = function() return false end,
+                separator     = true,
+                hold_callback = D.helpHold(_(
+                    "This device uses a filesystem on which Syncthing's database can't run "
+                    .. "reliably, so it was placed on the device's internal storage instead. "
+                    .. "This is automatic and normal — your files are not affected.")),
+            })
+        elseif dreason == "fallback_warn" then
+            table.insert(sub, {
+                text          = _("Database storage issue — tap and hold"),
+                enabled_func  = function() return false end,
+                separator     = true,
+                hold_callback = D.helpHold(_(
+                    "This device's storage can make Syncthing's database unreliable, and no "
+                    .. "alternative partition has enough free space. Syncing may be unstable. "
+                    .. "Free up space on internal storage (e.g. /var/local) and restart Syncthing.")),
+            })
+        end
+    end
+
+    if not self:isRunning() then
+        table.insert(sub, {
+            text          = _("Start Syncthing to see folder details and conflicts."),
+            enabled_func  = function() return false end,
+            hold_callback = D.helpHold(_("Folder and device details are only available while Syncthing is running. Start it from the main menu first.")),
+        })
+        return sub
+    end
+
+    -- Per-folder rows: label + real state, drilling into details on tap.
+    --
+    -- State is derived from getFolderHealth (which caches db/status calls
+    -- made on the previous health check) so no extra HTTP calls happen per
+    -- menu open.  If the cache is cold, state falls back to "Checking…"
+    -- for non-paused folders — acceptable because getFolderHealth will
+    -- populate on the next health cycle.
+    local cfg_folders = self:getFolders() or {}
+    local cfg_devices = self:getDevices() or {}
+    local fld_stats   = self:getFolderStats() or {}
+    local my_id       = self:getDeviceId()
+
+    -- Pull per-folder state snapshot from the folder_health cache.
+    -- This is free — it was already computed by the last getFolderHealth call.
+    local folder_health = self:getFolderHealth()
+    local folder_states = (folder_health and folder_health.folder_states) or {}
+
+    local device_name_map = {}
+    for _, dev in pairs(cfg_devices) do
+        local did = dev["deviceID"]
+        if did then
+            device_name_map[did] = (dev["name"] and dev["name"] ~= "") and dev["name"] or did
+        end
+    end
+    local function getDeviceName(did) return device_name_map[did] or did end
+
+    -- Pending devices & folders
+    local pending_devices = self:getPendingDevices() or {}
+    local pending_folders = self:getPendingFolders() or {}
+    local has_pending = next(pending_devices) or next(pending_folders)
+    if has_pending then
+        table.insert(sub, {
+            text          = _("── Pending ──"),
+            enabled_func  = function() return false end,
+            hold_callback = D.helpHold(_("Devices and folders that are waiting for your approval.\n\n"
+                                      .. "Tap a device to accept or ignore it; tap a folder to accept it.")),
+        })
+
+        for device_id, device in pairs(pending_devices) do
+            local default_name = device.name or device_id
+            table.insert(sub, {
+                text           = "  " .. default_name .. "  (" .. _("device") .. ")",
+                keep_menu_open = true,
+                hold_callback  = D.helpHold(T(_("Pending device \"%1\". Tap to accept or ignore."), default_name)),
+                -- FIX: receive tmi from TouchMenu:onMenuSelect(callback(self))
+                -- so the menu refreshes after accept/ignore without needing
+                -- the outer touchmenu_instance (which is nil via sub_item_table_func).
+                callback       = function(tmi)
+                    UIManager:show(ConfirmBox:new{
+                        text        = T(_("Accept device \"%1\"?\n\nID: %2"), default_name, device_id),
+                        ok_text     = _("Accept"),
+                        cancel_text = _("Ignore"),
+                        ok_callback = function() self:acceptDevice(device_id, default_name, tmi) end,
+                        cancel_callback = function()
+                            self:ignorePendingDevice(device_id)
+                            self:_invalidateProcess()
+                            if tmi then tmi:updateItems() end
+                        end,
+                    })
+                end,
+            })
+        end
+
+        for folder_id, offerers in pairs(pending_folders) do
+            for offerer_id, info in pairs(offerers.offeredBy or {}) do
+                local label = (info and info.label) or folder_id
+                table.insert(sub, {
+                    text           = "  " .. label .. "  (" .. _("folder") .. ")",
+                    keep_menu_open = true,
+                    hold_callback  = D.helpHold(T(_("Pending folder \"%1\". Tap to accept."), label)),
+                    -- FIX: same as pending devices above.
+                    callback       = function(tmi)
+                        UIManager:show(ConfirmBox:new{
+                            text        = T(_("Accept folder \"%1\" from this device?"), label),
+                            ok_text     = _("Accept"),
+                            cancel_text = _("Ignore"),
+                            ok_callback = function() self:acceptFolder(folder_id, label, offerer_id, tmi) end,
+                            cancel_callback = function()
+                                self:ignorePendingFolder(folder_id, offerer_id)
+                                self:_invalidateFolders()
+                                if tmi then tmi:updateItems() end
+                            end,
+                        })
+                    end,
+                })
+            end
+        end
+    end
+
+    -- Per-category item lists.  Each detail section (folders, devices,
+    -- conflicts) is collected into its own table and then hung off a single
+    -- "door" row in `sub`, so the top level stays compact: dashboard + doors.
+    -- The doors are added only when their list is non-empty (hide-when-empty).
+    local folders_items = {}
+
+    -- Folder list, sorted alphabetically by label/id.
+    local folder_list = {}
+    for _, f in pairs(cfg_folders) do table.insert(folder_list, f) end
+    local cmp = sort.natsort_cmp()
+    table.sort(folder_list, function(a, b)
+        return cmp(a["label"] or a["id"] or "", b["label"] or b["id"] or "")
+    end)
+
+    for __, folder in ipairs(folder_list) do
+        local _folder = folder
+        local fid     = _folder["id"] or ""
+        local stat    = fld_stats[fid] or {}
+        local folder_name = _folder["label"]
+        if not folder_name or folder_name == "" then
+            folder_name = fid
+        end
+
+        table.insert(folders_items, {
+            text_func = function()
+                -- Read live data so the label reflects the real state after
+                -- Pause/Resume without needing to close and reopen the menu.
+                local live_fh     = self:getFolderHealth()
+                local live_states = (live_fh and live_fh.folder_states) or {}
+                local fs          = live_states[fid] or {}
+                local current_state
+                if fs.paused then
+                    current_state = _("Paused")
+                elseif fs.errors then
+                    current_state = _("Error")
+                elseif fs.need_bytes and fs.need_bytes > 0 then
+                    current_state = T(_("Syncing… (%1)"), util.getFriendlySize(fs.need_bytes))
+                elseif fs.state == "idle" then
+                    current_state = _("Up to date")
+                else
+                    current_state = _("Checking…")
+                end
+                return string.format("%s: %s", folder_name, current_state)
+            end,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(T(_(
+                "Folder \"%1\".\n\n"
+                .. "Tap to see details: full path, remaining files, last scan time, last file synced, and which other devices share this folder."),
+                folder_name)),
+            -- FIX: receive tmi so refresh_menu() works after Rescan/Remove/Pause/Resume.
+            -- TouchMenu:onMenuSelect calls callback(self) where self = the TouchMenu
+            -- rendering this folder list; tmi:updateItems() refreshes it in place.
+            callback = function(tmi)
+                self.safe("Folder details", function(tmi)
+                    local function refresh_menu()
+                        if tmi then tmi:updateItems() end
+                    end
+                    local status = self:getFolderStatus(fid) or {}
+                    -- Read the real error text(s) so we only offer a "Fix" (rescan)
+                    -- for the transient, rescan-fixable kind; otherwise we show the
+                    -- actual error and keep the button a neutral "Rescan folder".
+                    local has_error   = (tonumber(status["errors"]) or 0) > 0
+                    local err_fixable = false
+                    local first_error = nil
+                    if has_error then
+                        local ferr  = self:getFolderErrors(fid)
+                        local elist = (ferr and ferr["errors"]) or {}
+                        err_fixable = #elist > 0
+                        for _, e in ipairs(elist) do
+                            local emsg = e["error"] or ""
+                            if not first_error and emsg ~= "" then first_error = emsg end
+                            if not U.isTransientFolderError(emsg) then err_fixable = false end
+                        end
+                    end
+                    local need_items = tonumber(status["needTotalItems"]) or 0
+                    local need_data  = tonumber(status["needBytes"])      or 0
+                    local need_str   = need_items > 0
+                        and T(_("%1 items (%2)"), need_items, util.getFriendlySize(need_data))
+                        or  _("Nothing — fully synced")
+                    -- Read is_paused from live folder health so the dialog
+                    -- reflects the real current state (not the stale _folder
+                    -- closure captured when the menu was built).
+                    local live_fh2    = self:getFolderHealth()
+                    local live_fs2    = (live_fh2 and live_fh2.folder_states and live_fh2.folder_states[fid]) or {}
+                    local is_paused   = live_fs2.paused or false
+                    -- Live folder config for path and device list.
+                    local live_folders = self:getFolders() or {}
+                    local live_folder  = nil
+                    for _, lf in pairs(live_folders) do
+                        if lf["id"] == fid then live_folder = lf; break end
+                    end
+                    local folder_path    = (live_folder and live_folder["path"]) or _folder["path"] or "?"
+                    local folder_devices = (live_folder and live_folder["devices"]) or _folder["devices"] or {}
+
+                    local detail_state = humanizeFolderState(
+                        status["state"],
+                        is_paused,
+                        (status["errors"] or 0) > 0,
+                        status["needBytes"])
+
+                    local device_name_list = {}
+                    for __, d in pairs(folder_devices) do
+                        local did2 = d["deviceID"]
+                        if did2 and did2 ~= my_id then
+                            table.insert(device_name_list, "  • " .. getDeviceName(did2))
+                        end
+                    end
+                    local shared_str = #device_name_list > 0
+                        and table.concat(device_name_list, "\n")
+                        or  _("  (only this device)")
+
+                    local summary = string.format(
+                        "%s: %s\n%s: %s\n%s: %s\n%s: %s",
+                        _("Path"),      folder_path,
+                        _("Status"),    detail_state,
+                        _("Remaining"), need_str,
+                        _("Errors"),    (not has_error) and _("none") or (first_error or tostring(status["errors"] or 0)))
+
+                    local other_buttons = {{
+                            {
+                                text     = _("Full details"),
+                                callback = function()
+                                    UIManager:show(TextViewer:new{
+                                        title = folder_name,
+                                        text  = string.format(
+                                            "%s: %s\n%s: %s\n%s: %s\n%s: %s\n%s: %s\n%s: %s\n\n%s:\n%s",
+                                            _("Path"),         folder_path,
+                                            _("Status"),       detail_state,
+                                            _("Remaining"),    need_str,
+                                            _("Errors"),       tonumber(status["errors"]) == 0 and _("none") or tostring(status["errors"] or 0),
+                                            _("Last scan"),    U.formatTime(stat["lastScan"]),
+                                            _("Last file"),    (stat["lastFile"] and stat["lastFile"]["filename"]) or _("none yet"),
+                                            _("Shared with"),  shared_str),
+                                        width  = math.floor(Device.screen:getWidth()  * 0.92),
+                                        height = math.floor(Device.screen:getHeight() * 0.80),
+                                    })
+                                end,
+                            },
+                            (not is_paused) and {
+                                text     = (has_error and err_fixable) and _("Fix error") or _("Rescan folder"),
+                                callback = function()
+                                    local result = self:scanFolder(fid)
+                                    UIManager:show(InfoMessage:new{
+                                        text    = U.isOk(result)
+                                            and T(_("Rescan started on \"%1\"."), folder_name)
+                                            or  T(_("Could not rescan \"%1\"."), folder_name),
+                                        timeout = 2,
+                                    })
+                                    refresh_menu()
+                                end,
+                            } or nil,
+                        }, {
+                            {
+                                text     = _("Remove folder"),
+                                callback = function()
+                                    UIManager:show(ConfirmBox:new{
+                                        text = T(_("Remove folder \"%1\"?\n\n"
+                                               .. "The files on disk are NOT deleted. "
+                                               .. "Syncthing will stop tracking this folder."),
+                                               folder_name),
+                                        ok_text     = _("Remove"),
+                                        cancel_text = _("Cancel"),
+                                        ok_callback = function()
+                                            local result = self:deleteFolder(fid)
+                                            local ok = U.isOk(result)
+                                            self:_cacheInvalidate()
+                                            self:_invalidateFolders()
+                                            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
+                                            if ok then
+                                                UIManager:show(InfoMessage:new{
+                                                    timeout = 3,
+                                                    text = T(_("Folder \"%1\" removed."), folder_name),
+                                                })
+                                            else
+                                                UIManager:show(InfoMessage:new{
+                                                    icon = "notice-warning",
+                                                    text = T(_("Could not remove folder.\n\n%1"), U.errOf(result)),
+                                                })
+                                            end
+                                            refresh_menu()
+                                        end,
+                                    })
+                                end,
+                            },
+                        }}
+                        -- Remove nil entries from the first button group
+                        -- (the conditional "Rescan folder" may be nil when folder is paused)
+                        for i = #other_buttons[1], 1, -1 do
+                            if not other_buttons[1][i] then
+                                table.remove(other_buttons[1], i)
+                            end
+                        end
+                    UIManager:show(ConfirmBox:new{
+                        title = folder_name,
+                        text  = summary,
+                        ok_text = is_paused and _("Resume folder") or _("Pause folder"),
+                        cancel_text = _("Close"),
+                        other_buttons = other_buttons,
+                        ok_callback = function()
+                            local new_paused = not is_paused
+                            local result = self:patchFolder(fid, { paused = new_paused })
+                            local ok = U.isOk(result)
+                            self:_cacheInvalidate()
+                            self:_invalidateFolders()
+                            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
+                            if ok then
+                                UIManager:show(InfoMessage:new{
+                                    timeout = 2,
+                                    text = new_paused
+                                        and T(_("Folder \"%1\" paused."), folder_name)
+                                        or  T(_("Folder \"%1\" resumed."), folder_name),
+                                })
+                            else
+                                UIManager:show(InfoMessage:new{
+                                    icon = "notice-warning",
+                                    text = T(_("Could not change folder state.\n\n%1"), U.errOf(result)),
+                                })
+                            end
+                            refresh_menu()
+                        end,
+                    })
+                end)(tmi)
+            end,
+        })
+    end
+
+    if #folders_items > 0 then
+        table.insert(sub, {
+            text                = _("Folders"),
+            sub_item_table_func = function() return folders_items end,
+            hold_callback       = D.helpHold(_("Each folder and its sync state. "
+                               .. "Tap a folder to see its path, what's left to sync, and to pause, rescan, or remove it.")),
+        })
+    end
+
+    -- Devices list
+    local devices_items = {}
+    local connections = self:getConnections() or {}
+    local conn_dict   = (connections and connections["connections"]) or {}
+    local dev_stats   = self:getDeviceStats() or {}
+
+    local conn_list = {}
+    for did, conn in pairs(conn_dict) do
+        if U.isValidDeviceID(did) then
+            table.insert(conn_list, { id = did, conn = conn })
+        end
+    end
+    local cmp_dev = sort.natsort_cmp()
+    table.sort(conn_list, function(a, b)
+        return cmp_dev(getDeviceName(a.id), getDeviceName(b.id))
+    end)
+
+    for __, entry in ipairs(conn_list) do
+        local did      = entry.id
+        local conn     = entry.conn
+        local ds       = dev_stats[did] or {}
+        local dev_name = getDeviceName(did)
+
+        table.insert(devices_items, {
+            text_func = function()
+                -- Read live connection data so the label updates after
+                -- Pause/Resume without closing and reopening the menu.
+                local connections = self:getConnections() or {}
+                local conn_map    = (connections and connections["connections"]) or {}
+                local conn        = conn_map[did] or {}
+                local dev_stats   = self:getDeviceStats() or {}
+                local ds          = dev_stats[did] or {}
+                local status_str  = conn["connected"] and _("Connected")
+                    or T(_("Last seen: %1"),
+                        U.formatTime(ds["lastSeen"]) ~= _("N/A")
+                            and U.formatTime(ds["lastSeen"])
+                            or _("Never connected"))
+                return string.format("%s: %s", dev_name, status_str)
+            end,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(T(_(
+                "Remote device \"%1\".\n\n"
+                .. "Tap to see the device ID, connection address, and pause status."),
+                dev_name)),
+            -- FIX: receive tmi for refresh_menu() after Pause/Resume.
+            callback = function(tmi)
+                self.safe("Device info", function(tmi)
+                    local function refresh_menu()
+                        if tmi then tmi:updateItems() end
+                    end
+                    -- Read live connection so the dialog shows the real
+                    -- current state, not the stale conn snapshot.
+                    local live_conns2    = self:getConnections() or {}
+                    local live_conn_map2 = (live_conns2 and live_conns2["connections"]) or {}
+                    local live_conn2     = live_conn_map2[did] or conn
+                    local live_ds2       = (self:getDeviceStats() or {})[did] or ds
+                    local is_paused      = live_conn2["paused"] == true
+                    local summary = string.format(
+                        "%s: %s\n%s: %s\n%s: %s\n%s: %s",
+                        _("Device ID"),  did,
+                        _("Address"),    live_conn2["connected"] and (live_conn2["address"] or _("unknown")) or _("offline"),
+                        _("Connected"),  live_conn2["connected"] and _("yes") or _("no"),
+                        _("Paused"),     is_paused and _("yes") or _("no"))
+                    UIManager:show(ConfirmBox:new{
+                        title = dev_name,
+                        text  = summary,
+                        ok_text = is_paused and _("Resume device") or _("Pause device"),
+                        cancel_text = _("Close"),
+                        other_buttons = {{
+                            {
+                                text     = _("Full details"),
+                                callback = function()
+                                    UIManager:show(TextViewer:new{
+                                        title = dev_name,
+                                        text  = string.format(
+                                            "%s: %s\n%s: %s\n%s: %s\n%s: %s\n%s: %s",
+                                            _("Device ID"),  did,
+                                            _("Address"),    live_conn2["connected"] and (live_conn2["address"] or _("unknown")) or _("offline"),
+                                            _("Connected"),  live_conn2["connected"] and _("yes") or _("no"),
+                                            _("Paused"),     is_paused and _("yes") or _("no"),
+                                            _("Last seen"),  U.formatTime(live_ds2["lastSeen"])),
+                                        width  = math.floor(Device.screen:getWidth()  * 0.92),
+                                        height = math.floor(Device.screen:getHeight() * 0.80),
+                                    })
+                                end,
+                            },
+                        }},
+                        ok_callback = function()
+                            local new_paused = not is_paused
+                            local result = self:patchDevice(did, { paused = new_paused })
+                            local ok = U.isOk(result)
+                            self:_invalidateProcess()
+                            self:_cacheInvalidate()
+                            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
+                            if ok then
+                                UIManager:show(InfoMessage:new{
+                                    timeout = 2,
+                                    text = new_paused
+                                        and T(_("Device \"%1\" paused."), dev_name)
+                                        or  T(_("Device \"%1\" resumed."), dev_name),
+                                })
+                            else
+                                UIManager:show(InfoMessage:new{
+                                    icon = "notice-warning",
+                                    text = T(_("Could not change device state.\n\n%1"), U.errOf(result)),
+                                })
+                            end
+                            refresh_menu()
+                        end,
+                    })
+                end)(tmi)
+            end,
+        })
+    end
+
+    if #devices_items > 0 then
+        table.insert(sub, {
+            text                = _("Devices"),
+            sub_item_table_func = function() return devices_items end,
+            hold_callback       = D.helpHold(_("Each remote device and its connection status. "
+                               .. "Tap a device to see its ID and address, and to pause or resume syncing.")),
+        })
+    end
+
+    -- Conflicts section
+    -- Call findConflicts() live inside sub_item_table_func so resolved
+    -- conflicts disappear immediately when updateItems() runs.
+    local has_conflicts = #(self:findConflicts()) > 0
+    if has_conflicts then
+        table.insert(sub, {
+            text                = _("Conflicts"),
+            sub_item_table_func = function()
+                return buildConflictsItems(self, self:findConflicts())
+            end,
+            hold_callback       = D.helpHold(_("A conflict happens when two devices change the same file before they could sync.\n\n"
+                                           .. "Syncthing keeps both copies side by side. The original file stays put, and the alternate version gets a name like \"…sync-conflict-DATE-TIME-DEVICE.ext\".\n\n"
+                                           .. "Use Resolve all to apply one strategy to every conflict at once, or tap an individual conflict to choose for each one.")),
+        })
+    end
+
+    return sub
+end
+
+---------------------------------------------------------------------------
+-- Pending devices & folders submenu (fallback when Syncthing is stopped)
+---------------------------------------------------------------------------
+local function getPendingMenu(self, touchmenu_instance)
+    return {{
+        text          = _("Syncthing is not running."),
+        enabled_func  = function() return false end,
+        hold_callback = D.helpHold(_("Pending devices and folders can only be listed while Syncthing is running.\n\n"
+                                  .. "Start Syncthing from the main menu first.")),
+    }}
+end
+
+---------------------------------------------------------------------------
+-- Setup submenu (Web GUI, pair, password, port)
+---------------------------------------------------------------------------
+local function getSetupMenu(self)
+    local sub = {}
+
+    -- Web GUI access — show the URL to open in a browser
+    local web_gui_help = _("Show the address to open the Syncthing Web GUI from any browser on the same Wi-Fi.\n\n"
+                        .. "The Web GUI is where you add folders, configure ignore patterns, and tweak advanced options.")
+    table.insert(sub, {
+        text           = _("Web GUI access"),
+        help_text      = web_gui_help,
+        keep_menu_open = true,
+        enabled_func   = D.enabled(self, "isRunning"),
+        hold_callback  = D.gatedHold(self, "isRunning", web_gui_help),
+        callback       = self.safe("Web GUI", function()
+            local ip          = U.getDeviceIP()
+            local host        = ip:find(":", 1, true) and ("[" .. ip .. "]") or ip
+            local url         = string.format("http://%s:%s", host, self.syncthing_port)
+            local is_loopback = (ip == "127.0.0.1")
+            local note = is_loopback
+                and _("\n\n ⚠ Wi-Fi appears disconnected. The Web GUI is only reachable from this device.")
+                or  ""
+            UIManager:show(ConfirmBox:new{
+                text = T(_(
+                    "Open this address in a browser on any device on the same Wi-Fi:\n\n"
+                    .. "%1%2\n\n"
+                    .. "Or scan the QR code with another device."),
+                    url, note),
+                ok_text     = _("Show QR code"),
+                cancel_text = _("Close"),
+                ok_callback = function()
+                                UIManager:show(QRMessage:new{
+                                    text   = url,
+                                    width  = math.floor(Device.screen:getWidth() * 0.8),
+                                    height = math.floor(Device.screen:getHeight() * 0.8),
+                                })
+                            end,
+            })
+        end),
+        separator = true,
+    })
+
+    -- Pair wizard — guided flow that replaces the bare Device ID submenu
+    local pair_help = _("Step-by-step wizard: shows your device ID and QR code, then watches for incoming pairing requests.\n\n"
+                     .. "When the other device sends a pairing request, this wizard offers to accept it automatically — you don't have to switch back and forth between devices.")
+    table.insert(sub, {
+        text           = _("Pair with another device"),
+        help_text      = pair_help,
+        keep_menu_open = true,
+        enabled_func   = D.enabled(self, "isRunning"),
+        hold_callback  = D.gatedHold(self, "isRunning", pair_help),
+        callback       = self.safe("Pair wizard", function()
+            self:startPairWizard()
+        end),
+    })
+
+    -- Password — single dialog, password-first
+    local pwd_help = _("Set or remove the password for the Syncthing Web GUI.\n\n"
+                    .. "Without a password, anyone on your Wi-Fi can change Syncthing's settings. Strongly recommended on shared or public networks.\n\n"
+                    .. "Syncthing must be stopped to change the password.")
+    table.insert(sub, {
+        text           = _("Web GUI password"),
+        help_text      = pwd_help,
+        keep_menu_open = true,
+        hold_callback  = D.helpHold(pwd_help),
+        callback       = function(tmi) Settings.showPasswordDialog(self, tmi) end,
+    })
+
+    -- Port — change once and forget
+    local port_help = _("The TCP port Syncthing listens on for the Web GUI.\n\n"
+                     .. "Change this only if another app already uses port 8384, or if your platform requires a non-default port.\n\n"
+                     .. "Syncthing must be stopped to change the port.")
+    table.insert(sub, {
+        text_func = function()
+            return T(_("Web GUI port: %1"), self.syncthing_port)
+        end,
+        help_text      = port_help,
+        keep_menu_open = true,
+        hold_callback  = D.helpHold(port_help),
+        -- Port change requires a restart.  If Syncthing is running, offer
+        -- to stop it inline so the user never has to hunt for Stop first.
+        callback       = self.safe("Set port", function(tmi)
+            local function openPortDialog()
+                local dlg
+                dlg = InputDialog:new{
+                    title      = _("Web GUI port"),
+                    input      = tostring(self.syncthing_port),
+                    input_type = "number",
+                    input_hint = "8384",
+                    buttons    = {{
+                        {
+                            text     = _("Cancel"),
+                            id       = "close",
+                            callback = function() UIManager:close(dlg) end,
+                        },
+                        {
+                            text             = _("Save"),
+                            is_enter_default = true,
+                            callback         = function()
+                                local val = tonumber(dlg:getInputText())
+                                if not val or val < 1024 or val > 65535 then
+                                    UIManager:show(InfoMessage:new{
+                                        icon = "notice-warning",
+                                        text = _("Port must be a number between 1024 and 65535."),
+                                    })
+                                    return
+                                end
+                                self.syncthing_port = tostring(val)
+                                G_reader_settings:saveSetting("syncthing_port", self.syncthing_port)
+                                UIManager:close(dlg)
+                                UIManager:show(InfoMessage:new{
+                                    timeout = 3,
+                                    text    = T(_("Port set to %1.\n\nStart Syncthing to apply."), val),
+                                })
+                                if tmi then tmi:updateItems() end
+                            end,
+                        },
+                    }},
+                }
+                UIManager:show(dlg)
+                dlg:onShowKeyboard()
+            end
+
+            if self:isRunning() then
+                UIManager:show(ConfirmBox:new{
+                    text        = _("Changing the port requires stopping Syncthing.\n\nStop Syncthing now and continue?"),
+                    ok_text     = _("Stop & continue"),
+                    cancel_text = _("Cancel"),
+                    ok_callback = function()
+                        self:stop(function() openPortDialog() end)
+                    end,
+                })
+                return
+            end
+            openPortDialog()
+        end),
+        separator = true,
+    })
+
+    local resource_help = _("Choose how many system resources Syncthing may use.\n\n"
+        .. "• Low: Strongly limits memory and CPU usage. Suitable for most e-ink devices. "
+        .. "Syncthing will be restricted to 64 MiB of RAM and minimal background activity.\n\n"
+        .. "• Normal: Relaxes limits, allowing more concurrency and higher memory usage (128 MiB). "
+        .. "Best for devices with 512 MB+ RAM.\n\n"
+        .. "The memory and CPU limits are applied at the process level and take full effect after a restart. "
+        .. "Additional fine-grained folder and device settings can be applied separately with 'Apply resource tweaks'.")
+    table.insert(sub, {
+        text_func = function()
+            return self.resource_profile == "normal"
+                and _("Resource profile: Normal")
+                or  _("Resource profile: Low")
+        end,
+        help_text      = resource_help,
+        keep_menu_open = true,
+        hold_callback  = D.helpHold(resource_help),
+        callback = function(tmi)
+            self.resource_profile = (self.resource_profile == "normal") and "low" or "normal"
+            G_reader_settings:saveSetting("syncthing_resource_profile", self.resource_profile)
+            if tmi then tmi:updateItems() end
+
+            if self:isRunning() then
+                -- API-based tweaks take effect immediately
+                self:applyPerformanceSettings()
+                self:applyNetworkSettings()
+                UIManager:show(ConfirmBox:new{
+                    text = _(
+                        "Resource profile changed.\n\n" ..
+                        "• Folder/device limits and network settings have been applied immediately.\n" ..
+                        "• Memory and CPU limits (GOMEMLIMIT, GOGC) require a Syncthing restart to take effect.\n\n" ..
+                        "Restart Syncthing now?"
+                    ),
+                    ok_text     = _("Restart Syncthing"),
+                    cancel_text = _("Later"),
+                    ok_callback = function()
+                        self:stop(function()
+                            self._silentStart = true
+                            self:start()
+                        end)
+                    end,
+                })
+            else
+                UIManager:show(InfoMessage:new{
+                    timeout = 3,
+                    text    = _("Resource profile saved. All limits (including memory/CPU) will apply on next start."),
+                })
+            end
+        end,
+    })
+    -- Fine resource tuning — immediately after Resource profile because it
+    -- applies that profile's limits to a running Syncthing instance.  Users
+    -- naturally look here after switching profiles.
+    local tweaks_help = _("Apply or reset profile‑specific performance settings.\n\n"
+						.. "• Apply: push folder/device limits (copiers, hashers, pullerMaxPendingKiB, "
+						.. "scanProgressIntervalS, numConnections) to a running Syncthing instance. "
+						.. "For folders on FAT/FUSE filesystems it also sets "
+						.. "modTimeWindowS=2, ignorePerms=true, and disables ownership & xattr sync.\n"
+						.. "• Reset: revert all these limits to Syncthing defaults. The FAT/FUSE safety settings are cleared too, but are re-applied automatically the next time Syncthing starts.\n\n"
+						.. "FAT/FUSE safety defaults (modTimeWindowS, ignorePerms, ownership) "
+						.. "are already applied automatically when Syncthing starts — you only "
+						.. "need this menu to change profile‑specific limits or to reset everything.\n\n"
+						.. "Syncthing must be running.")
+    table.insert(sub, {
+        text           = _("Fine resource tuning"),
+        help_text      = tweaks_help,
+        keep_menu_open = true,
+        enabled_func   = D.enabled(self, "isRunning"),
+        hold_callback  = D.gatedHold(self, "isRunning", tweaks_help),
+        -- ButtonDialog gives each action its own dedicated button, which is
+        -- more reliable than cancel_callback (whose behaviour is ambiguous in
+        -- some KOReader versions) and clearer for the user.
+        callback       = function()
+            local ButtonDialog = require("ui/widget/buttondialog")
+            local dlg
+            dlg = ButtonDialog:new{
+                title = _("Fine resource tuning"),
+                info  = _("Apply: push folder/device limits per the current "
+                       .. "Resource profile to Syncthing right now.\n\n"
+                       .. "Reset: revert all limits to Syncthing defaults.\n\n"
+                       .. "Both options are safe and can be re-applied at any time."),
+                buttons = {
+                    {
+                        {
+                            text     = _("Apply"),
+                            callback = function()
+                                UIManager:close(dlg)
+                                self:applyPerformanceSettings()
+                            end,
+                        },
+                        {
+                            text     = _("Reset to defaults"),
+                            callback = function()
+                                UIManager:close(dlg)
+                                self:resetPerformanceSettings()
+                            end,
+                        },
+                    },
+                    {
+                        {
+                            text     = _("Cancel"),
+                            callback = function() UIManager:close(dlg) end,
+                        },
+                    },
+                },
+            }
+            UIManager:show(dlg)
+        end,
+        separator = true,
+    })
+
+    -- Network access
+    local network_help = _("Choose whether Syncthing may connect to the Internet.\n\n"
+        .. "• LAN only: No external connections. Global discovery, relays, NAT, crash reporting, "
+        .. "and automatic upgrades are all disabled. This is the safest and most private mode.\n\n"
+        .. "• Global: Enables global discovery, relays, NAT traversal, crash reporting, "
+        .. "and automatic upgrades. Required for syncing across different networks.\n\n"
+        .. "Changes are applied immediately and persist across restarts.")
+    table.insert(sub, {
+        text_func = function()
+            return self.network_access == "global"
+                and _("Network access: Global")
+                or  _("Network access: LAN only")
+        end,
+        help_text      = network_help,
+        keep_menu_open = true,
+        hold_callback  = D.helpHold(network_help),
+        callback       = function(tmi)
+            self.network_access = (self.network_access == "global") and "lan" or "global"
+            G_reader_settings:saveSetting("syncthing_network_access", self.network_access)
+            if tmi then tmi:updateItems() end
+            -- Apply immediately if Syncthing is already running.
+            -- Note: the Go runtime limits (GOMEMLIMIT/GOGC) and --no-upgrade
+            -- are set at process launch by start-syncthing and require a
+            -- restart to change; we inform the user if that is the case.
+            if self:isRunning() then
+                self:applyNetworkSettings()
+                UIManager:show(InfoMessage:new{
+                    timeout = 3,
+                    text    = _("Network settings applied."),
+                })
+            end
+        end,
+        separator = true,
+    })
+
+    -- Legacy Syncthing — visibility is decided strictly by what the device
+    -- could plausibly need, so a modern-kernel device never sees an entry
+    -- whose only effect would be to downgrade its working Syncthing.
+    --
+    --   kernel "modern" (≥ 3.2) → NEVER shown. Current Syncthing runs fine
+    --       here; a start failure on such a device is never a kernel problem
+    --       (wrong binary arch, busy port, slow first-run keygen), so legacy
+    --       mode cannot help and must not be offered.  The sole exception is
+    --       if legacy mode is somehow already enabled — then it is shown so
+    --       the user can turn it back OFF.
+    --   kernel "old" (< 3.2) → shown. This device genuinely needs it.
+    --   kernel "unknown" → shown only as a fallback, and only after a real
+    --       start attempt has timed out (syncthing_start_failed).  This is the
+    --       escape hatch for the rare device where `uname` could not be read;
+    --       the flag is set by the start path itself, independent of the menu,
+    --       so this is not circular.
+    local _leg_ok, _leg_mod = pcall(require, "legacy")
+    if _leg_ok then
+        local kstate         = _leg_mod.kernelState()
+        local legacy_enabled = _leg_mod.isEnabled()
+        local start_failed   = G_reader_settings:isTrue("syncthing_start_failed")
+
+        local show_legacy = legacy_enabled
+            or kstate == "old"
+            or (kstate == "unknown" and start_failed)
+
+        if show_legacy then
+            -- ⚠ when the device looks like it needs legacy but it is not yet
+            -- enabled; never on a modern kernel (which only reaches here via
+            -- the already-enabled fail-safe).
+            local needs_attention = not legacy_enabled
+                and (kstate == "old" or (kstate == "unknown" and start_failed))
+            local legacy_label = needs_attention
+                and _("Legacy Syncthing ⚠")
+                or  _("Legacy Syncthing")
+            local legacy_help = _(
+                "Legacy mode runs an older Syncthing build for e-readers "
+             .. "whose Linux kernel is too old (below 3.2) for the current "
+             .. "Syncthing.\n\n"
+             .. "The symptom is Syncthing failing to start with a "
+             .. "'netpoll failed' or 'epollwait failed' error.\n\n"
+             .. "Open this to set it up; the right version is detected for "
+             .. "you. Devices with a newer kernel do not need this.")
+            if #sub > 0 then sub[#sub].separator = true end
+            table.insert(sub, {
+                text                = legacy_label,
+                help_text           = legacy_help,
+                hold_callback       = D.helpHold(legacy_help),
+                sub_item_table_func = function()
+                    return _leg_mod.buildMenuItems(self)
+                end,
+            })
+        end
+    end
+
+    return sub
+end
+
+---------------------------------------------------------------------------
+-- Automation submenu
+---------------------------------------------------------------------------
+local function getAutomationMenu(self)
+    -- Notifications (at the top, separated from the rest)
+    local notifications_help = _("Show a brief notification outside the KOSyncthing+ menu when:\n"
+                        .. "• A Quick Sync completes\n"
+                        .. "• New sync conflicts are detected\n\n"
+                        .. "Notifications are silent, appear at the top of the screen, and vanish after a few seconds.\n\n"
+                        .. "Manual actions always show feedback directly in the menu, regardless of this setting.")
+	-- Autostart Syncthing
+    local always_help = _(
+						"Automatically start Syncthing and keep it running whenever possible.\n\n"
+						.. "• Wi-Fi will be turned on automatically when needed.\n"
+						.. "• If Wi-Fi cannot be turned on, Syncthing will not start.\n"
+						.. "• A health-check timer runs every 60 seconds: if Syncthing "
+						.. "should be running but isn't, it tries to start it again.\n"
+						.. "• When Wi-Fi disconnects, Syncthing stops automatically.\n\n"
+						.. "Best for users who want continuous background sync without "
+						.. "wasting resources when offline.")
+
+    local charging_help = _("Automation rules above only fire if the device is plugged in and charging.\n\n"
+                         .. "Useful when you have a large library and don't want an unexpected Wi-Fi join to drain your battery mid-read.")
+
+    -- Periodic Quick Sync
+    local periodic_sync_help = _("Automatically run a Quick Sync at regular intervals when the device is awake.\n\n"
+                        .. "Works silently in the background — no pop‑ups, no interruptions. "
+                        .. "A small notification appears only when files are transferred or if a problem occurs.\n\n"
+                        .. "Uses KOReader's seamless Wi‑Fi framework — Wi‑Fi is turned on/off automatically according to your Network settings.\n\n"
+                        .. "For fully automatic operation, set 'Action when Wi‑Fi is off' to 'turn on' in KOReader → Network.")
+
+    -- Sync interval
+    local interval_help = _("Choose how often to run the periodic Quick Sync, in minutes.\n\n"
+                        .. "Set any value between 1 and 1440 (24 hours). Examples: 15, 45, 90, 120.")
+
+    return {
+        {
+            text           = _("Show notifications"),
+            help_text      = notifications_help,
+            keep_menu_open = true,
+            checked_func   = function() return self.notifications_enabled end,
+            hold_callback  = D.helpHold(notifications_help),
+            callback       = function(tmi)
+                self.notifications_enabled = not self.notifications_enabled
+                G_reader_settings:saveSetting("syncthing_notifications_enabled", self.notifications_enabled)
+                if tmi then tmi:updateItems() end
+            end,
+            separator = true,
+        },
+        {
+            text_func = function()
+                return self.auto_start_always
+                    and _("Autostart Syncthing ✓")
+                    or  _("Autostart Syncthing")
+            end,
+            help_text      = always_help,
+            keep_menu_open = true,
+            checked_func   = function() return self.auto_start_always end,
+            hold_callback  = D.helpHold(always_help),
+            callback       = function(tmi)
+                self.auto_start_always = not self.auto_start_always
+                G_reader_settings:saveSetting("syncthing_auto_start_always", self.auto_start_always)
+                if tmi then tmi:updateItems() end
+            end,
+        },
+        {
+            text           = _("Periodic Quick Sync"),
+            help_text      = periodic_sync_help,
+            keep_menu_open = true,
+            checked_func   = function() return self.periodic_sync_enabled end,
+            hold_callback  = D.helpHold(periodic_sync_help),
+            callback       = function(tmi)
+                self.periodic_sync_enabled = not self.periodic_sync_enabled
+                G_reader_settings:saveSetting("syncthing_periodic_sync_enabled", self.periodic_sync_enabled)
+                if self.periodic_sync_enabled then
+                    if Device:hasSeamlessWifiToggle() and G_reader_settings:readSetting("wifi_enable_action") ~= "turn_on" then
+                        UIManager:show(InfoMessage:new{
+                            text = _("Tip: Set 'Action when Wi‑Fi is off' to 'turn on' in KOReader Network settings for fully automatic sync."),
+                            timeout = 5,
+                        })
+                    end
+                    self:_startPeriodicSyncTimer()
+                else
+                    self:_stopPeriodicSyncTimer()
+                end
+                if tmi then tmi:updateItems() end
+            end,
+        },
+        {
+            text_func = function()
+                local base = T(_("Sync interval: %1 min"), self.periodic_sync_interval_min)
+                if self.periodic_sync_enabled and self._next_periodic_sync_at then
+                    local remaining_sec = self._next_periodic_sync_at - os.time()
+                    local remaining_min = math.max(0, math.ceil(remaining_sec / 60))
+                    return base .. "  ·  " .. T(_("next in %1 min"), remaining_min)
+                end
+                return base
+            end,
+            help_text      = interval_help,
+            keep_menu_open = true,
+            enabled_func   = function() return self.periodic_sync_enabled end,
+            hold_callback  = D.helpHold(interval_help),
+            callback       = function(tmi)
+                local dlg
+                dlg = InputDialog:new{
+                    title      = _("Sync interval (minutes)"),
+                    input      = tostring(self.periodic_sync_interval_min),
+                    input_type = "number",
+                    input_hint = "30",
+                    buttons    = {{
+                        {
+                            text     = _("Cancel"),
+                            id       = "close",
+                            callback = function() UIManager:close(dlg) end,
+                        },
+                        {
+                            text             = _("Save"),
+                            is_enter_default = true,
+                            callback         = function()
+                                local val = tonumber(dlg:getInputText())
+                                if not val or val < 1 or val > 1440 then
+                                    UIManager:show(InfoMessage:new{
+                                        icon = "notice-warning",
+                                        text = _("Interval must be between 1 and 1440 minutes (24 hours)."),
+                                    })
+                                    return
+                                end
+                                self.periodic_sync_interval_min = val
+                                G_reader_settings:saveSetting("syncthing_periodic_sync_interval_min", val)
+                                UIManager:close(dlg)
+                                self:_stopPeriodicSyncTimer()
+                                self:_startPeriodicSyncTimer()
+                                if tmi then tmi:updateItems() end
+                            end,
+                        },
+                    }},
+                }
+                UIManager:show(dlg)
+                dlg:onShowKeyboard()
+            end,
+            separator = true,
+        },
+        {
+            text_func = function()
+                return self.auto_start_charging
+                    and _("Apply automation only when charging ✓")
+                    or  _("Apply automation only when charging")
+            end,
+            help_text      = charging_help,
+            keep_menu_open = true,
+            checked_func   = function() return self.auto_start_charging end,
+            enabled_func   = D.enabled(self, "hasAutomation"),
+            hold_callback  = D.gatedHold(self, "hasAutomation", charging_help),
+            callback       = function(tmi)
+                self.auto_start_charging = not self.auto_start_charging
+                G_reader_settings:saveSetting("syncthing_auto_start_charging", self.auto_start_charging)
+                if tmi then tmi:updateItems() end
+            end,
+        },
+    }
+end
+---------------------------------------------------------------------------
+-- Maintenance submenu (logs, debug, update, reset)
+---------------------------------------------------------------------------
+local function getMaintenanceMenu(self, touchmenu_instance)
+    -- The log lives in the config directory (start-syncthing writes
+    -- --log-file there).  Use getConfigDir() so it follows legacy mode rather
+    -- than hardcoding settings/syncthing.
+    local log_path = U.getConfigDir() .. "/syncthing.log"
+
+    -- Help texts hoisted to locals so each one is referenced both by
+    -- help_text (shown in some KOReader UIs) and by hold_callback (always
+    -- available via tap-and-hold).  Keeping them as named locals keeps
+    -- the menu items themselves readable.
+    local view_log_help     = _("Show the last lines of the Syncthing log.\n\n"
+                             .. "Useful when reporting bugs or diagnosing why Syncthing failed to start.")
+    local clear_log_help    = _("Delete the Syncthing log file.\n\n"
+                             .. "A new log will be created automatically the next time Syncthing runs. Use this to reclaim disk space or to start with a clean log after fixing an issue.")
+    local update_help       = _("Check GitHub for a newer Syncthing binary and install it if available.\n\n"
+                             .. "Wi-Fi is required. The currently installed version is shown in the menu label.")
+    local install_help      = _("Download and install the Syncthing binary for this device's platform.\n\n"
+                             .. "Wi-Fi is required.")
+    local api_error_help    = _("Show details of the last failed Syncthing API request.\n\n"
+                             .. "Useful when reporting bugs. Becomes available only after an API call has failed.")
+    local reset_db_help     = _("Delete the local Syncthing index so it is rebuilt from scratch on the next start.\n\n"
+                             .. "No files are deleted — this only affects Syncthing's internal tracking database. Use this if Syncthing is stuck, reporting incorrect sync status, or failing to detect file changes.\n\n"
+                             .. "First sync after a reset will be slower than usual.")
+    local reset_all_help    = _("Wipe Syncthing's config, database, password, device ID, and all plugin settings.\n\n"
+                             .. "Your synced files on disk are NOT deleted.\n\n"
+                             .. "Use this when you want to start over cleanly. Other devices will need to re-pair with the new device ID this generates.")
+
+    -- Build the log-related submenu once
+    local log_items = {
+        -- View logs
+        {
+            text           = _("View logs"),
+            help_text      = view_log_help,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(view_log_help),
+            callback       = self.safe("View log", function()
+                if not util.pathExists(log_path) then
+                    UIManager:show(InfoMessage:new{
+                        text = _("No log file found yet.\n\nStart Syncthing at least once to generate one."),
+                    })
+                    return
+                end
+                local lines = {}
+                local f = io.open(log_path, "r")
+                if f then
+                    for line in f:lines() do
+                        table.insert(lines, line)
+                        if #lines > 200 then table.remove(lines, 1) end
+                    end
+                    f:close()
+                end
+                local content = #lines > 0 and table.concat(lines, "\n") or ""
+                UIManager:show(TextViewer:new{
+                    title = _("Syncthing log"),
+                    text  = content ~= "" and content or _("Log file is empty."),
+                    width  = math.floor(Device.screen:getWidth()  * 0.92),
+                    height = math.floor(Device.screen:getHeight() * 0.85),
+                })
+            end),
+        },
+        -- View errors only
+        {
+            text           = _("View errors only"),
+            help_text      = _("Show only the warning and error lines from the Syncthing log, filtering out routine information."),
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(_("Useful for diagnosing problems without scrolling through the entire log.")),
+            callback       = self.safe("View errors", function()
+                if not util.pathExists(log_path) then
+                    UIManager:show(InfoMessage:new{
+                        text = _("No log file found yet.\n\nStart Syncthing at least once to generate one."),
+                    })
+                    return
+                end
+                local lines = {}
+                local f = io.open(log_path, "r")
+                if f then
+                    for line in f:lines() do
+                        if line:find("%[WARNING%]") or line:find("%[ERROR%]") then
+                            table.insert(lines, line)
+                            if #lines > 200 then table.remove(lines, 1) end
+                        end
+                    end
+                    f:close()
+                end
+                local content = #lines > 0 and table.concat(lines, "\n") or ""
+                UIManager:show(TextViewer:new{
+                    title = _("Syncthing log (errors only)"),
+                    text  = content ~= "" and content or _("No errors found in the log."),
+                    width  = math.floor(Device.screen:getWidth()  * 0.92),
+                    height = math.floor(Device.screen:getHeight() * 0.85),
+                })
+            end),
+        },
+        -- Clear log
+        {
+            text           = _("Clear log file"),
+            help_text      = clear_log_help,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(clear_log_help),
+            callback       = self.safe("Clear log", function()
+                if not util.pathExists(log_path) then
+                    UIManager:show(InfoMessage:new{ text = _("No log file exists yet.") })
+                    return
+                end
+                UIManager:show(ConfirmBox:new{
+                    text        = _("Delete the Syncthing log file?\n\nA new log will be created automatically on the next start."),
+                    ok_text     = _("Delete log"),
+                    cancel_text = _("Cancel"),
+                    ok_callback = function()
+                        FS.remove(log_path)
+                        UIManager:show(InfoMessage:new{ timeout = 2, text = _("Log file deleted.") })
+                    end,
+                })
+            end),
+        },
+    }
+
+    return {
+        -- Logs (grouped)
+        {
+            text                = _("Logs"),
+            help_text           = _("View, filter, or clear the Syncthing log."),
+            keep_menu_open      = true,
+            hold_callback       = D.helpHold(_("View the full log, show only errors, or delete the log file to free space.")),
+            sub_item_table_func = function() return log_items end,
+            separator           = true,   -- separator after the Logs group
+        },
+
+        -- Copy diagnostic info
+        -- Collects plugin version, Syncthing version, running state, port,
+        -- last 5 API errors and last 20 WARN/ERROR log lines into a QR code
+        -- (scan with your phone), then shows the same text in a viewer, and
+        -- also copies it to the clipboard as a backup.
+        {
+            text           = _("Copy diagnostic info"),
+            help_text      = _("Collect plugin state, version info, recent errors and log warnings into a QR code (scan with your phone) and copy to clipboard.\n\nPaste into a bug report or support request."),
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(_("Useful when reporting bugs. Shows a QR code you can scan with your phone to get the full diagnostic snapshot.")),
+            callback       = self.safe("Diagnostic snapshot", function()
+                -- Read OUR OWN _meta by absolute path, NOT require("_meta"):
+                -- the "_meta" module key is shared across all KOReader plugins,
+                -- so require() returns whichever plugin's metadata was cached
+                -- first (often one without a version field → "unknown").
+                -- Loading our own file is the single source of truth.
+                local meta = {}
+                do
+                    local ok, m = pcall(dofile, U.plugin_path .. "_meta.lua")
+                    if ok and type(m) == "table" then meta = m end
+                end
+                local lines      = {}
+                local function ln(s) table.insert(lines, s or "") end
+
+                ln("=== KOSyncthing+ – Diagnostic Snapshot ===")
+                ln(os.date("%Y-%m-%d %H:%M:%S"))
+                ln("")
+
+                -- Versions and state
+                ln("Plugin version:    " .. (meta.version or "unknown"))
+                local st_ver = self:getCurrentVersion()
+                ln("Syncthing version: " .. (st_ver or "not installed"))
+                ln("Running:           " .. (self:isRunning() and "yes" or "no"))
+                local pid = self:getPid()
+                ln("PID:               " .. (pid and tostring(pid) or "none"))
+                ln("Port:              " .. tostring(self.syncthing_port or "?"))
+                if U.isLegacy() then
+                    local lv = G_reader_settings:readSetting("syncthing_legacy_version") or "unknown"
+                    ln("Legacy mode:       " .. lv)
+                else
+                    ln("Legacy mode:       off")
+                end
+                local dev_id = self:_cacheGet("device_id")
+                ln("Device ID:         " .. (dev_id or "unknown (not cached)"))
+                ln("")
+
+                -- AD-19: database location and FUSE-relocation status.  The
+                -- hard_remove bug does not crash the daemon and is not caught
+                -- by the start-up poll, so surfacing the DB location plus any
+                -- "disk I/O error" log lines is the only way a silently failing
+                -- sync becomes attributable here.
+                ln("=== Database ===")
+                local data_dir, dreason = U.getDataDir()
+                local cfg_dir = U.getConfigDir()
+                ln("Location:          " .. tostring(data_dir))
+                ln("Resolution:        " .. tostring(dreason))
+                if data_dir ~= cfg_dir then
+                    ln("Relocated off:     " .. cfg_dir .. "  (FUSE hard_remove)")
+                    local free = U.getFreeSpace(data_dir)
+                    if free then ln("Free (data fs):    " .. U.formatBytes(free)) end
+                end
+                if util.pathExists(log_path) then
+                    local io_errs = 0
+                    local lf2 = io.open(log_path, "r")
+                    if lf2 then
+                        for line in lf2:lines() do
+                            if line:find("disk I/O error", 1, true) then
+                                io_errs = io_errs + 1
+                            end
+                        end
+                        lf2:close()
+                    end
+                    ln("Disk I/O errors:   " .. tostring(io_errs)
+                        .. (io_errs > 0 and "  <- DB on a failing filesystem" or ""))
+                end
+                ln("")
+
+                -- Last 5 API errors
+                ln("=== Recent API Errors (last 5) ===")
+                local errors = self:getApiErrors()
+                if not errors or #errors == 0 then
+                    ln("No API errors recorded.")
+                else
+                    local start = math.max(1, #errors - 4)
+                    for i = start, #errors do
+                        local e = errors[i]
+                        ln(string.format("[%d] %s %s → %s",
+                            i,
+                            e.endpoint or "?",
+                            e.method   or "",
+                            e.error    or e.status or "?"))
+                    end
+                end
+                ln("")
+
+                -- Last 20 WARN/ERROR log lines
+                ln("=== Recent Log (last 20 WARN/ERROR lines) ===")
+                if not util.pathExists(log_path) then
+                    ln("No log file found.")
+                else
+                    local log_lines = {}
+                    local lf = io.open(log_path, "r")
+                    if lf then
+                        for line in lf:lines() do
+                            if line:find("%[WARNING%]") or line:find("%[ERROR%]") then
+                                table.insert(log_lines, line)
+                                if #log_lines > 20 then table.remove(log_lines, 1) end
+                            end
+                        end
+                        lf:close()
+                    end
+                    if #log_lines == 0 then
+                        ln("No warnings or errors in log.")
+                    else
+                        for _, l in ipairs(log_lines) do ln(l) end
+                    end
+                end
+
+                local snapshot = table.concat(lines, "\n")
+
+                -- Show QR code first (primary path – scan with phone)
+                UIManager:show(QRMessage:new{
+                    text   = snapshot,
+                    width  = math.floor(Device.screen:getWidth() * 0.85),
+                    height = math.floor(Device.screen:getHeight() * 0.85),
+                    dismiss_callback = function()
+                        -- After QR is dismissed, show text viewer for review
+                        UIManager:show(TextViewer:new{
+                            title  = _("Diagnostic info (also copied to clipboard)"),
+                            text   = snapshot,
+                            width  = math.floor(Device.screen:getWidth()  * 0.92),
+                            height = math.floor(Device.screen:getHeight() * 0.85),
+                        })
+                    end,
+                })
+
+                -- Also copy to clipboard as a backup
+                U.copyToClipboard(snapshot)
+            end),
+        },
+
+        -- Debug: API error viewer (now shows up to 8 recent errors)
+        {
+            text_func = function()
+                local errors = self:getApiErrors()
+                local count = errors and #errors or 0
+                return count > 0
+                    and T(_("View API errors (%1)"), count)
+                    or  _("View API errors")
+            end,
+            help_text      = api_error_help,
+            keep_menu_open = true,
+            enabled_func   = D.enabled(self, "hasApiError"),
+            hold_callback  = D.gatedHold(self, "hasApiError", api_error_help),
+            callback       = self.safe("API errors", function()
+                local errors = self:getApiErrors()
+                if #errors == 0 then
+                    UIManager:show(InfoMessage:new{
+                        text = _("No API errors recorded."),
+                    })
+                    return
+                end
+                local text = ""
+                for i, err in ipairs(errors) do
+                    text = text .. string.format(
+                        "#%d  %s\n%s: %s\n%s: %s\n\n%s:\n%s\n\n───\n\n",
+                        i,
+                        os.date("%Y-%m-%d %H:%M:%S", err.time),
+                        _("Path"),   err.path or "?",
+                        _("Status"), err.status or "?",
+                        _("Body"),   err.body or _("(empty)"))
+                end
+                UIManager:show(TextViewer:new{
+                    title = T(_("API errors (%1)"), #errors),
+                    text  = text,
+                    width  = math.floor(Device.screen:getWidth()  * 0.92),
+                    height = math.floor(Device.screen:getHeight() * 0.80),
+                })
+            end),
+        },
+
+        {
+            text           = _("Clear all API errors"),
+            help_text      = _("Remove all stored API errors from memory."),
+            keep_menu_open = true,
+            enabled_func   = D.enabled(self, "hasApiError"),
+            hold_callback  = D.gatedHold(self, "hasApiError", _("Tap to clear all API errors from memory.")),
+            callback       = function(tmi)
+                self:_clearApiErrors()
+                UIManager:show(InfoMessage:new{
+                    timeout = 2,
+                    text    = _("All API errors cleared."),
+                })
+                if tmi then tmi:updateItems() end
+            end,
+            separator      = true,
+        },
+
+        -- Copy API key
+        {
+            text           = _("Copy API key"),
+            help_text      = _("Copy the Syncthing API key to the clipboard."),
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(_("The API key gives full access to Syncthing's settings via its REST API. Keep it secret.")),
+            callback       = self.safe("Copy API key", function()
+                local api_key = self:getAPIKey()
+                if api_key and api_key ~= "" then
+                    U.copyToClipboard(api_key)
+                else
+                    UIManager:show(InfoMessage:new{
+                        icon = "notice-warning",
+                        text = _("No API key found. Make sure Syncthing has been started at least once, or enter it in the connection settings."),
+                        timeout = 3,
+                    })
+                end
+            end),
+        },
+
+        -- Reset database — stop-and-continue so the user never has to
+        -- hunt for the Stop button first.
+        {
+            text           = _("Reset sync database"),
+            help_text      = reset_db_help,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(reset_db_help),
+            callback       = self.safe("Reset db", function()
+                local function doResetDb()
+                    UIManager:show(ConfirmBox:new{
+                        text = _("Delete the local Syncthing database?\n\n"
+                              .. "Syncthing will rebuild its index on the next start. No files are deleted.\n\n"
+                              .. "First sync after this may be slow."),
+                        ok_text     = _("Reset database"),
+                        cancel_text = _("Cancel"),
+                        ok_callback = function()
+                            -- AD-19: the index files live in the DATA dir, which
+                            -- may be relocated off /mnt/us — use getDataDir(), not
+                            -- a hardcoded settings/syncthing path, or the reset
+                            -- would miss the real database.
+                            local db_dir = U.getDataDir()
+                            local ok, err = FS.purgeChildrenMatching(db_dir, "index-*", "any")
+                                -- "index-*" is a POSIX shell glob (passed to find -name).
+                                -- The previous "^index%-" was a Lua pattern and matched nothing (BUG-34).
+                            if ok then
+                                UIManager:show(InfoMessage:new{
+                                    timeout = 3,
+                                    text = _("Database reset.\n\nStart Syncthing to rebuild the index from disk."),
+                                })
+                            else
+                                UIManager:show(InfoMessage:new{
+                                    icon = "notice-warning",
+                                    text = _("Database reset completed with errors.\n\n"
+                                          .. "Some index files could not be removed. "
+                                          .. "Check the logs for details."),
+                                })
+                            end
+                        end,
+                    })
+                end
+                if self:isRunning() then
+                    UIManager:show(ConfirmBox:new{
+                        text        = _("Resetting the database requires stopping Syncthing.\n\nStop now and continue?"),
+                        ok_text     = _("Stop & continue"),
+                        cancel_text = _("Cancel"),
+                        ok_callback = function()
+                            self:stop(function() doResetDb() end)
+                        end,
+                    })
+                    return
+                end
+                doResetDb()
+            end),
+        },
+
+        -- Reset everything: the escape hatch
+        {
+            text           = _("Reset everything to factory defaults"),
+            help_text      = reset_all_help,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(reset_all_help),
+            callback       = self.safe("Reset all", function(tmi)
+                self:resetEverything(function()
+                    if tmi then tmi:updateItems() end
+                end)
+            end),
+        },
+
+        -- Restart Syncthing
+        {
+            text           = _("Restart Syncthing"),
+            help_text      = _("Stop Syncthing and start it again. Useful when Syncthing is unresponsive or after changing resource settings."),
+            keep_menu_open = true,
+            enabled_func   = D.enabled(self, "isRunning"),
+            hold_callback  = D.gatedHold(self, "isRunning", _("Tap to restart Syncthing now.")),
+            callback       = function(tmi)
+                self:stop(function()
+                    self._silentStart = true   -- без "Syncthing started" съобщение
+                    self:start()
+                    if tmi then tmi:updateItems() end
+                end)
+            end,
+            separator = true,
+        },
+
+        -- Check for updates
+        {
+            text_func = function()
+                if not self:binaryExists() then return _("Install Syncthing binary") end
+                local ver = self:getCurrentVersion()
+                return ver
+                    and T(_("Check for updates  (v%1 installed)"), ver)
+                    or  _("Check for updates")
+            end,
+            help_text = update_help,
+            keep_menu_open = true,
+            -- Use a context-aware hold so that we explain the right thing
+            -- depending on whether the binary is already installed.
+            hold_callback = function()
+                local txt = self:binaryExists() and update_help or install_help
+                UIManager:show(InfoMessage:new{ text = txt })
+            end,
+            callback = self.safe("Check updates", function()
+                if not self:binaryExists() then
+                    self:showFirstRunDialog()
+                else
+                    self:checkForUpdates()
+                end
+            end),
+        },
+    }
+end
+
+
+---------------------------------------------------------------------------
+-- Top-level menu (the entry point in Tools)
+---------------------------------------------------------------------------
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Android remote-mode menu (separate from the Kindle/Kobo menu)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Built additively from ONLY what works without a local daemon, so the normal
+-- menu builder below is never touched.  Reuses getStatusMenu (already a
+-- standalone function) and calls existing methods for actions; the daemon
+-- controls (start/stop/install/automation/maintenance/logs/reset) are simply
+-- not offered, so their ConfirmBox/InfoMessage paths are never reached.
+local function getAndroidMenu(self)
+    local Android = require("st_android")
+
+    -- Not connected yet (no saved key, or the app was unreachable at init):
+    -- a single row that opens the connect dialog.
+	if self._android_unavailable and not self._android_mode then
+		local connect = Android.connectionSettingsMenuItem(self)
+		return {
+			{
+				text      = _("Connect to the Syncthing app"),
+				help_text = _("This plugin works alongside a Syncthing app (e.g. Syncthing-Fork) running on this device. Install and start it, then tap here to enter its API key."),
+				keep_menu_open = true,
+				callback  = function(tmi)
+					connect.callback(tmi)
+				end,
+			},
+		}
+	end
+
+    local sub = {}
+
+    -- Status header — tap routes by state: open conflicts to resolve, do a
+    -- one-tap rescan when that would fix the errors, else open the status view.
+    sub[#sub + 1] = {
+        text_func = function()
+            local header = self:getStatusHeader()
+            if not self:headerNeedsAction() then return header end
+            local cached = self:_cacheGet("conflicts")
+            local n = cached and #cached or 0
+            if n > 0 then return header .. _(" — tap to resolve") end
+            local h = self:getFolderHealth()
+            if h and h.errors > 0 and h.errors_fixable then
+                return header .. _(" — tap to fix")
+            end
+            return header .. _(" — tap to view")
+        end,
+        enabled_func   = function() return self:headerNeedsAction() end,
+        help_text      = _("Open the status view: folder sync state, sync conflicts, and any pending devices or folders."),
+        keep_menu_open = true,
+        separator      = true,
+        callback = self.safe("Status header", function(tmi)
+            local function showStatus()
+                local status_menu = getStatusMenu(self)
+                if status_menu and #status_menu > 0 then
+                    local TouchMenu = require("ui/widget/touchmenu")
+                    UIManager:show(TouchMenu:new{
+                        title      = _("Status & conflicts"),
+                        item_table = status_menu,
+                    })
+                end
+            end
+            if #self:findConflicts() > 0 then showConflicts(self); return end
+            local h = self:getFolderHealth()
+            if h and h.errors > 0 and h.errors_fixable then
+                -- One-tap fix: a rescan clears the transient ("changed during
+                -- …") errors. Same action as the "Rescan all folders" item.
+                local ok = self:apiCall("db/scan", "POST")
+                self:_cacheInvalidate()
+                UIManager:show(InfoMessage:new{
+                    text    = ok and _("Rescan started.") or _("Rescan failed — is the Syncthing app running?"),
+                    timeout = 2,
+                })
+                if tmi and tmi.updateItems then tmi:updateItems() end
+            else
+                showStatus()
+            end
+        end),
+    }
+
+    -- Rescan all folders (POST /rest/db/scan via the API).
+    sub[#sub + 1] = {
+        text_func      = function()
+            local h = self:getFolderHealth()
+            if h and h.errors > 0 and h.errors_fixable then return _("Fix errors") end
+            return _("Rescan all folders")
+        end,
+        help_text      = _("Ask the Syncthing app to rescan every folder now, so recent file changes are detected and synced without waiting."),
+        keep_menu_open = true,
+		callback = self.safe("Android rescan", function(tmi)
+			local ok = self:apiCall("db/scan", "POST")
+			self:_cacheInvalidate()
+			UIManager:show(InfoMessage:new{
+				text    = ok and _("Rescan started.") or _("Rescan failed — is the Syncthing app running?"),
+				timeout = 2,
+			})
+			if tmi and tmi.updateItems then tmi:updateItems() end
+		end),
+    }
+
+    -- Pause / resume all folders.
+    sub[#sub + 1] = {
+        text_func = function()
+            local h = self:getFolderHealth()
+            local paused = h and h.paused or 0
+            local total  = h and h.total or 0
+            if paused > 0 then return T(_("Resume %1 paused folder(s)"), paused) end
+            return total > 0 and T(_("Pause all %1 folders"), total) or _("Pause all folders")
+        end,
+        help_text = _("Pause all folders to stop syncing temporarily (saves battery and data), or resume them again."),
+        keep_menu_open = true,
+        callback = self.safe("Android pause", function(tmi)
+            local h = self:getFolderHealth()
+            local do_pause = not (h and h.paused and h.paused > 0)
+            self:setPauseAll(do_pause, function() if tmi and tmi.updateItems then tmi:updateItems() end end)
+        end),
+    }
+
+    -- Status & conflicts — the core of remote mode (lfs conflict scan + merge).
+    sub[#sub + 1] = {
+        text_func = function()
+            local n = #self:findConflicts()
+            return n > 0 and T(_("Status & conflicts (%1)"), n) or _("Status & conflicts")
+        end,
+        help_text           = _("View sync status and resolve sync conflicts — for example when the same book was annotated on two devices. Reading progress can be auto-merged."),
+        keep_menu_open      = true,
+		sub_item_table_func = self.safe("Status menu", function(tmi)
+			local menu = getStatusMenu(self, tmi)
+			UIManager:nextTick(function()
+				if tmi and tmi.updateItems then tmi:updateItems() end
+			end)
+			return menu
+		end),
+        separator           = true,
+    }
+
+    -- Web GUI access (address + QR), scheme-aware.
+    sub[#sub + 1] = {
+        text           = _("Web GUI access"),
+        help_text      = _("Show the address to open the Syncthing Web GUI from any browser on the same Wi-Fi.\n\nThe Web GUI is where you add folders, configure ignore patterns, and tweak advanced options."),
+        keep_menu_open = true,
+        callback = self.safe("Android web GUI", function()
+            local ip     = U.getDeviceIP()
+            local host   = ip:find(":", 1, true) and ("[" .. ip .. "]") or ip
+            local scheme = self._api_scheme or "http"
+            local url    = string.format("%s://%s:%s", scheme, host, self.syncthing_port)
+            UIManager:show(ConfirmBox:new{
+                text = T(_("Open this address in a browser on the same Wi-Fi:\n\n%1\n\nOr scan the QR code with another device."), url),
+                ok_text     = _("Show QR code"),
+                cancel_text = _("Close"),
+                ok_callback = function()
+                    UIManager:show(QRMessage:new{
+                        text   = url,
+                        width  = math.floor(Device.screen:getWidth() * 0.8),
+                        height = math.floor(Device.screen:getHeight() * 0.8),
+                    })
+                end,
+            })
+        end),
+    }
+
+    -- Pair with another device (reuses the existing wizard).
+    sub[#sub + 1] = {
+        text           = _("Pair with another device"),
+        help_text      = _("Step-by-step wizard: shows your device ID and QR code, then watches for incoming pairing requests.\n\nWhen the other device sends a pairing request, this wizard offers to accept it automatically — you don't have to switch back and forth between devices."),
+        keep_menu_open = true,
+        separator      = true,
+		callback = self.safe("Android pair", function(tmi)
+			self:startPairWizard()
+			if tmi and tmi.updateItems then tmi:updateItems() end
+		end),
+    }
+
+    -- Connection settings (re-enter API key / re-detect scheme).
+    sub[#sub + 1] = Android.connectionSettingsMenuItem(self)
+
+    -- Diagnostic snapshot — Android-relevant fields (no PID/legacy/binary).
+    sub[#sub + 1] = {
+        text           = _("Copy diagnostic info"),
+        help_text      = _("Show plugin state, the connection scheme and port, and recent API errors, and copy them to the clipboard for a bug report."),
+        keep_menu_open = true,
+        callback = self.safe("Android diagnostic", function()
+            local L = {}
+            local function ln(s) L[#L + 1] = s end
+            ln("KOSyncthing+ — Android remote mode")
+            ln("Scheme:    " .. tostring(self._api_scheme))
+            ln("Port:      " .. tostring(self.syncthing_port))
+            ln("Reachable: " .. (self:isRunning() and "yes" or "no"))
+            local dev = self._cacheGet and self:_cacheGet("device_id") or nil
+            if dev then ln("Device ID: " .. tostring(dev)) end
+            local errs = (self.getApiErrors and self:getApiErrors()) or self._api_errors or {}
+            ln("Recent API errors: " .. tostring(#errs))
+            for i = math.max(1, #errs - 3), #errs do
+                local e = errs[i]
+                if e then ln("  - " .. tostring(e.path) .. ": " .. tostring(e.status)) end
+            end
+            -- Folder errors with the real messages, classified, so a bug report
+            -- shows at a glance whether a rescan would help or the user must act.
+            local fh = self:getFolderHealth()
+            if fh and fh.folder_states then
+                local printed_hdr = false
+                for fid_d, fs in pairs(fh.folder_states) do
+                    if fs.error_texts and #fs.error_texts > 0 then
+                        if not printed_hdr then ln("Folder errors:"); printed_hdr = true end
+                        ln("  " .. tostring(fid_d) .. " (" ..
+                           (fs.errors_fixable and "rescan-fixable" or "needs attention") .. "):")
+                        for _, m in ipairs(fs.error_texts) do
+                            ln("    - " .. tostring(m))
+                        end
+                    end
+                end
+                if not printed_hdr then
+                    if (fh.errors or 0) > 0 then
+                        ln("Folder errors: " .. tostring(fh.errors) .. " (details unavailable)")
+                    else
+                        ln("Folder errors: none")
+                    end
+                end
+            end
+            local text = table.concat(L, "\n")
+            pcall(function()
+                if Device.input and Device.input.setClipboardText then
+                    Device.input.setClipboardText(text)
+                end
+            end)
+            UIManager:show(TextViewer:new{ title = _("Diagnostic info"), text = text })
+        end),
+    }
+
+    sub[#sub + 1] = {
+        text           = _("Reset connection"),
+        help_text      = _("Forget the saved API key and reset the plugin's settings on this device, returning to the connect screen. The Syncthing app and its synced files are not affected."),
+        keep_menu_open = true,
+        callback       = self.safe("Android reset", function(tmi)
+            self:resetEverything(function()
+                if tmi and tmi.updateItems then tmi:updateItems() end
+            end)
+        end),
+    }
+
+    return sub
+end
+
+local function addToMainMenu(self, menu_items)
+    -- Android remote mode: route to a separate, purpose-built menu.  The
+    -- Kindle/Kobo construction below is left completely untouched.
+    if self._android_mode or self._android_unavailable then
+        menu_items.kosyncthing_plus = {
+            text                = _("KOSyncthing+"),
+            sorting_hint        = "tools",
+            sub_item_table_func = function() return getAndroidMenu(self) end,
+        }
+        return
+    end
+
+    local startstop_help = _("Turn Syncthing on or off.\n\n"
+                          .. "When off, no syncing happens and your battery is preserved.\n"
+                          .. "When on, Syncthing watches your folders and exchanges files with your other devices over Wi-Fi.\n\n"
+                          .. "If Syncthing isn't installed yet, this option offers to download it.")
+
+    local quicksync_top_help = _("Run a one-shot sync: start Syncthing, scan your folders, "
+                                .. "exchange changes, then stop.\n\n"
+                                .. "If Syncthing is already running, this just triggers a rescan.\n\n"
+                                .. "Wi-Fi is turned on/off automatically according to your Network "
+                                .. "settings — no prompts, no interruptions.\n\n"
+                                .. "A small notification appears only when the sync completes "
+                                .. "(or if an error occurs).\n\n"
+                                .. "Best for battery — saves you from leaving Syncthing running all day.")
+
+    local pause_help = _("Pause syncing on all folders, or resume them all.\n\n"
+                      .. "Useful before traveling, when sharing Wi-Fi with someone bandwidth-conscious, or to save battery without stopping Syncthing entirely.\n\n"
+                      .. "Paused folders keep their settings — they just stop syncing.")
+
+    local status_help = _("Dashboard showing what Syncthing is doing right now: per-folder state, "
+                        .. "connected remote devices, and any sync conflicts.\n\n"
+                        .. "When the header line starts with ⚠ you can tap it to jump directly here.\n\n"
+                        .. "If two devices change the same file before they could sync, "
+                        .. "you'll find conflicts here to resolve.")
+
+    local setup_help = _("Connect new devices, set the Web GUI password, change the Web GUI port, "
+                        .. "and adjust resource and network settings.\n\n"
+                        .. "This is where you go after installing Syncthing for the first time, "
+                        .. "or when you want to tweak performance or add another device.")
+
+    local automation_help = _("Pick when Syncthing starts and stops automatically.\n\n"
+                            .. "Periodic Quick Sync works silently in the background — no pop‑ups, no interruptions. "
+                            .. "A small notification appears only when files are actually transferred or if a problem occurs.\n\n"
+                            .. "For most users this is the best balance between convenience and battery life: "
+                            .. "Syncthing runs only when needed, and your reading is never disturbed.")
+
+    local maintenance_help = _("Logs, updates, debug info, and reset options.\n\n"
+                            .. "Most users won't need anything in here. Useful when reporting bugs or recovering from a broken setup.")
+
+    local syncthing_sub = {
+        {
+            text_func = function()
+                local header = self:getStatusHeader()
+                if self:headerNeedsAction() then
+                    local cached   = self:_cacheGet("conflicts")
+                    local n_cached = cached and #cached or 0
+                    if n_cached > 0 then return header .. _(" — tap to resolve") end
+                    local h = self:getFolderHealth()
+                    if h and h.errors > 0 and h.errors_fixable then
+                        return header .. _(" — tap to fix")
+                    end
+                    return header .. _(" — tap to view")
+                end
+                return header
+            end,
+            enabled_func        = function() return self:headerNeedsAction() end,
+            separator           = true,
+            keep_menu_open      = true,
+            hold_callback       = function()
+                if not self:binaryExists() then
+                    UIManager:show(InfoMessage:new{
+                        text = _("Syncthing is not installed yet."),
+                        timeout = 3,
+                    })
+                elseif not self:isRunning() then
+                    self:runManualStart()
+                else
+                    local conflicts = self:findConflicts()
+                    if #conflicts > 0 then
+                        showConflicts(self)
+                    else
+                        -- Errors a rescan won't fix (permission/space/marker/I/O):
+                        -- open the status view instead of a Quick Sync that can't
+                        -- help. Everything else (up to date, or rescan-fixable
+                        -- errors) still triggers Quick Sync, exactly as before.
+                        local h = self:getFolderHealth()
+                        if h and h.errors > 0 and not h.errors_fixable then
+                            local status_menu = getStatusMenu(self)
+                            if status_menu and #status_menu > 0 then
+                                local TouchMenu = require("ui/widget/touchmenu")
+                                UIManager:show(TouchMenu:new{
+                                    title      = _("Status & conflicts"),
+                                    item_table = status_menu,
+                                })
+                            end
+                        else
+                            self:runQuickSync()
+                        end
+                    end
+                end
+            end,
+            callback = self.safe("Status header", function(tmi)
+                local function showStatus()
+                    local status_menu = getStatusMenu(self)
+                    if status_menu and #status_menu > 0 then
+                        local TouchMenu = require("ui/widget/touchmenu")
+                        UIManager:show(TouchMenu:new{
+                            title      = _("Status & conflicts"),
+                            item_table = status_menu,
+                        })
+                    end
+                end
+                if #self:findConflicts() > 0 then showConflicts(self); return end
+                local h = self:getFolderHealth()
+                if h and h.errors > 0 and h.errors_fixable then
+                    -- One-tap fix: a rescan clears the transient ("changed
+                    -- during …") errors. Same action as "Rescan all folders".
+                    self:quickSync(function() if tmi then tmi:updateItems() end end)
+                else
+                    showStatus()
+                end
+            end),
+        },
+        {
+            text_func = function()
+                if not self:binaryExists() then return _("Install Syncthing binary") end
+                return self:isRunning() and _("Stop Syncthing") or _("Start Syncthing")
+            end,
+            help_text      = startstop_help,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(startstop_help),
+            callback       = self.safe("Start/Stop", function(tmi)
+                if not self:binaryExists() then
+                    self:showFirstRunDialog(function()
+                        self:_invalidateBinaryCache()
+                        self:_cacheInvalidate()
+                        if tmi then tmi:updateItems() end
+                    end)
+                else
+                    self:onToggleSyncthingServer(function()
+                        self:_cacheInvalidate()
+                        if tmi then tmi:updateItems() end
+                    end)
+                end
+            end),
+        },
+        {
+            text_func = function()
+                if self:isRunning() then
+                    local h = self:getFolderHealth()
+                    if h and h.errors > 0 and h.errors_fixable then return _("Fix errors") end
+                    return _("Rescan all folders")
+                end
+                return _("Quick Sync")
+            end,
+            help_text      = quicksync_top_help,
+            keep_menu_open = true,
+            enabled_func   = D.enabled(self, "binaryExists"),
+            hold_callback  = D.gatedHold(self, "binaryExists", quicksync_top_help),
+			callback 	   = self.safe("Quick Sync", function(tmi)
+				self:quickSync(function()
+					if tmi then tmi:updateItems() end
+				end)
+			end),
+        },
+        {
+            text_func = function()
+                local h        = self:isRunning() and self:getFolderHealth() or nil
+                local n_paused = h and h.paused or 0
+                local n_total  = h and h.total  or 0
+                if n_paused > 0 then
+                    if n_paused == n_total then
+                        return T(_("Resume all %1 folders"), n_total)
+                    else
+                        return T(_("Resume %1 paused folder(s)"), n_paused)
+                    end
+                end
+                return n_total > 0
+                    and T(_("Pause all %1 folders"), n_total)
+                    or  _("Pause all folders")
+            end,
+            help_text      = pause_help,
+            keep_menu_open = true,
+            enabled_func   = D.enabled(self, "isRunning"),
+            hold_callback  = D.gatedHold(self, "isRunning", pause_help),
+			callback = self.safe("Pause toggle", function(tmi)
+				local h       = self:isRunning() and self:getFolderHealth() or nil
+				local paused  = h and h.paused or 0
+				local do_pause = paused == 0
+				self:setPauseAll(do_pause, function()
+					if tmi then tmi:updateItems() end
+				end)
+			end),
+        },
+        {
+            text_func = function()
+                local n = self:isRunning() and #self:findConflicts() or 0
+                if n > 0 then
+                    return T(_("Status & conflicts (%1)"), n)
+                end
+                return _("Status & conflicts")
+            end,
+            help_text           = status_help,
+            keep_menu_open      = true,
+            hold_callback       = D.helpHold(status_help),
+			sub_item_table_func = self.safe("Status menu", function(tmi)
+				local menu = getStatusMenu(self, tmi)
+				UIManager:nextTick(function()
+					if tmi and tmi.updateItems then tmi:updateItems() end
+				end)
+				return menu
+			end),
+            separator = true,
+        },
+        {
+            text                = _("Setup"),
+            help_text           = setup_help,
+            keep_menu_open      = true,
+            hold_callback       = D.helpHold(setup_help),
+            sub_item_table_func = self.safe("Setup menu", function() return getSetupMenu(self) end),
+        },
+        {
+            text_func = function()
+                local parts = {}
+                if self.auto_start_always then table.insert(parts, _("always")) end
+                if self.periodic_sync_enabled then table.insert(parts, _("periodic")) end
+                return #parts > 0
+                    and T(_("Automation: %1"), table.concat(parts, ", "))
+                    or  _("Automation")
+            end,
+            help_text           = automation_help,
+            keep_menu_open      = true,
+            hold_callback       = D.helpHold(automation_help),
+            sub_item_table_func = self.safe("Automation menu", function() return getAutomationMenu(self) end),
+        },
+        {
+            text                = _("Maintenance"),
+            help_text           = maintenance_help,
+            keep_menu_open      = true,
+            hold_callback       = D.helpHold(maintenance_help),
+            sub_item_table_func = self.safe("Maintenance menu", function(tmi)
+                return getMaintenanceMenu(self, tmi)
+            end),
+        },
+    }
+
+    menu_items.kosyncthing_plus = {
+        text         = _("KOSyncthing+"),
+        sorting_hint = "tools",
+        sub_item_table_func = function()
+            -- Refresh the running-state belief so the menu reflects reality
+            -- immediately (not only after the ≤5 s is_running cache TTL).
+            self:reconcile("menu")
+            if self:binaryExists()
+                    and not self.gui_password
+                    and not G_reader_settings:readSetting("syncthing_password_configured") then
+                UIManager:scheduleIn(3, function()
+                    self:_suggestPassword()
+                end)
+            end
+            return syncthing_sub
+        end,
+    }
+end
+
+---------------------------------------------------------------------------
+-- Module exports
+-- showPasswordDialog and _suggestPassword live in st_settings.lua but are
+-- re-exported here so that main.lua's mix-in loop doesn't need to change.
+---------------------------------------------------------------------------
+return {
+    addToMainMenu       = addToMainMenu,
+    getStatusMenu       = getStatusMenu,
+    getSetupMenu        = getSetupMenu,
+    getAutomationMenu   = getAutomationMenu,
+    getMaintenanceMenu  = getMaintenanceMenu,
+    getPendingMenu      = getPendingMenu,
+    showPasswordDialog  = Settings.showPasswordDialog,
+    _suggestPassword    = Settings._suggestPassword,
+}

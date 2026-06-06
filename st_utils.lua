@@ -1,0 +1,680 @@
+-- st_utils.lua – Shared constants, paths, shell helpers, network utilities, and the single‑source list of all settings keys
+local DataStorage = require("datastorage")
+local Device      = require("device")
+local UIManager   = require("ui/uimanager")
+local InfoMessage = require("ui/widget/infomessage")
+local util        = require("util")
+local logger      = require("logger")
+local _           = require("syncthing_i18n").gettext
+
+local datetime_ok, datetime = pcall(require, "datetime")
+
+local path        = DataStorage:getFullDataDir()
+local plugin_path = path .. "/plugins/kosyncthing_plus.koplugin/"
+local cacert_path = plugin_path .. "cacert.pem"
+
+local DANGEROUS_PATHS = {
+    ["/"] = true, ["/mnt"] = true, ["/data"] = true,
+    ["/system"] = true, ["/proc"] = true, ["/sys"] = true,
+    ["/dev"] = true, ["/etc"] = true, [""] = true,
+}
+
+local NO_CACERT_MSG = _(
+    "The SSL certificate bundle (cacert.pem) is missing from the plugin folder.\n\n" ..
+    "This file is required for secure HTTPS downloads. " ..
+    "Please reinstall KOSyncthing+ from scratch.")
+
+local FOLDER_CACHE_TTL = 15
+
+
+local function formatTime(iso_str)
+    if not iso_str or iso_str == "" then return _("N/A") end
+    if datetime_ok and datetime and datetime.stringISO8601ToSeconds then
+        local seconds = datetime.stringISO8601ToSeconds(iso_str)
+        if seconds and datetime.secondsToDateTime then
+            return datetime.secondsToDateTime(seconds)
+        end
+    end
+    -- Fallback: simple substring replacement
+    return string.sub(iso_str, 1, 16):gsub("T", " ")
+end
+
+-- getDeviceIP() returns a printable IP for QR codes / GUI URL display.
+-- We try IPv4 first because LAN setups overwhelmingly use IPv4 and the
+-- resulting URL is shorter & easier to type into a browser by hand.  If
+-- the device only has IPv6 (rare on consumer e-readers but real on some
+-- IPv6-only networks), we fall back to the first IPv6 address printed by
+-- Device:retrieveNetworkInfo().  As a last resort we return 127.0.0.1.
+local function getDeviceIP()
+    local info = Device.retrieveNetworkInfo and Device:retrieveNetworkInfo() or ""
+    local v4 = info:match("IP: (%d+%.%d+%.%d+%.%d+)")
+    if v4 then return v4 end
+    -- IPv6 addresses contain colons and hex digits.  We only accept
+    -- something that looks like at least two hex groups separated by a
+    -- colon, which rules out accidental matches on log lines containing
+    -- "IP: x" without an actual address.
+    local v6 = info:match("IP[v6]*:%s*([%x:]+:[%x:]+)")
+    if v6 and v6:find(":", 1, true) then return v6 end
+    return "127.0.0.1"
+end
+
+local function shellEscape(s)
+    if not s then return "" end
+    return tostring(s):gsub("'", "'\\''")
+end
+
+
+
+local function isValidDeviceID(s)
+    if type(s) ~= "string" then return false end
+    local stripped = s:gsub("%-", "")
+    return #stripped == 56 and stripped:match("^[A-Z2-7]+$") ~= nil
+end
+
+local function copyToClipboard(text)
+    if Device.input and Device.input.setClipboardText then
+        Device.input.setClipboardText(text)
+        UIManager:show(InfoMessage:new{ timeout = 2, text = _("Copied to clipboard.") })
+    else
+        UIManager:show(InfoMessage:new{
+            icon = "notice-warning",
+            text = _("Clipboard not supported on this device."),
+        })
+    end
+end
+
+local function execOk(ret)
+    return ret == 0 or ret == true
+end
+
+local _loopback_checked = nil
+local function loopbackIsUp()
+    if _loopback_checked ~= nil then return _loopback_checked end
+    local p = io.popen("ip link show lo 2>/dev/null")
+    if not p then _loopback_checked = false; return false end
+    local out = p:read("*a"); p:close()
+    _loopback_checked = out and out:find("UP") ~= nil
+    return _loopback_checked
+end
+
+-- Loopback state can change between sessions (e.g. user reboots, or some
+-- other tool brings `lo` down).  This invalidator lets the caller drop the
+-- sticky cache before re-probing — `start` in st_process.lua now calls it
+-- so we re-check on every start attempt.
+local function invalidateLoopbackCache()
+    _loopback_checked = nil
+end
+
+local function kindleOpenPort(port)
+    local rule = string.format("INPUT -p tcp --dport %s -j ACCEPT", port)
+    if not execOk(os.execute("iptables -C " .. rule .. " 2>/dev/null")) then
+        os.execute("iptables -A " .. rule .. " 2>/dev/null")
+    end
+end
+
+local function kindleClosePort(port)
+    local max_attempts = 10
+    while max_attempts > 0 and execOk(os.execute(string.format(
+        "iptables -D INPUT -p tcp --dport %s -j ACCEPT 2>/dev/null", port))) do
+        max_attempts = max_attempts - 1
+    end
+end
+
+local _curl_ok = nil
+local function curlAvailable()
+    if _curl_ok ~= nil then return _curl_ok end
+    local p = io.popen("curl --version 2>/dev/null")
+    if p then
+        p:read("*a")
+        local ok = p:close()
+        _curl_ok = (ok == true or ok == 0)
+    else
+        _curl_ok = false
+    end
+    return _curl_ok
+end
+
+-- curl availability shouldn't normally change at runtime but a factory
+-- reset is the right moment to drop the assumption.
+local function invalidateCurlCache()
+    _curl_ok = nil
+end
+
+-- Single source of truth for ALL G_reader_settings keys this plugin owns.
+-- Used by st_reset._wipe (factory reset) and st_process.deletePluginSettings
+-- (plugin removal) so the two paths stay in sync.  Adding a new setting
+-- means adding it here once.
+local ALL_SETTINGS_KEYS = {
+    "syncthing_port",
+    "syncthing_gui_user",
+    "syncthing_gui_password",
+    "syncthing_auto_start_charging",
+    "syncthing_auto_start_always",
+    "syncthing_password_dialog_seen",
+    "syncthing_conflict_cache_ttl",
+    "syncthing_notifications_enabled",
+    "syncthing_resource_profile",
+    "syncthing_network_access",
+    "syncthing_settings_version",
+    "syncthing_periodic_sync_enabled",
+    "syncthing_periodic_sync_interval_min",
+    "syncthing_was_running",
+    "syncthing_arch_warning_shown",
+    "syncthing_password_configured",
+    "syncthing_password_skip_at",
+	"syncthing_start_failed",
+    -- Database relocation (AD-19): where the SQLite DB lives when /mnt/us is a
+    -- hard_remove FUSE mount, plus the one-time "first scan" notice flag.  Both
+    -- are cleared by factory reset so a fresh DB re-resolves and re-notifies.
+    "syncthing_data_dir",
+    "syncthing_data_notice_seen",
+    -- Legacy mode keys — must be here so factory reset and plugin removal
+    -- clean them up correctly.  They are written by legacy.lua but owned
+    -- by this list.
+    "syncthing_use_legacy",
+    "syncthing_legacy_version",
+    "syncthing_legacy_installed_version",
+    -- Android remote-mode keys (written by st_android): the API key, port and
+    -- the discovered scheme (http/https) used to reach the Syncthing app.
+    "syncthing_android_apikey",
+    "syncthing_android_port",
+    "syncthing_android_scheme",
+}
+
+local function cacertExists()
+    return util.pathExists(cacert_path)
+end
+
+-- Sets or clears GUI user/password in Syncthing's config.xml.
+-- When `password` is nil or empty, any existing <user> and <password> tags
+-- are removed, effectively disabling GUI authentication.
+-- When `password` is provided, `syncthing generate` is called to hash
+-- the password and update the config (requires --data flag).
+-- setGUIPassword(password, config_dir, gui_user)
+-- Sets or removes the Syncthing Web GUI password by editing config.xml.
+--
+-- Returns true on success, or (false, error_message) on failure.  Callers
+-- should check the return value and surface the error to the user — earlier
+-- versions silently swallowed every failure mode, leaving the user thinking
+-- their password was saved when in fact it wasn't.
+local function setGUIPassword(password, config_dir, gui_user)
+    if not config_dir then return false, "no config directory provided" end
+    local user = gui_user or "syncthing"
+    -- Use whichever binary is currently active (standard or legacy).
+    -- G_reader_settings is a KOReader global, available at call time.
+    local use_legacy = G_reader_settings:isTrue("syncthing_use_legacy")
+    local binary = use_legacy
+        and plugin_path .. "syncthing-legacy"
+        or  plugin_path .. "syncthing"
+    -- Fallback: if the preferred binary is missing but the other one exists,
+    -- use it.  This covers the brief transition window when the user has just
+    -- toggled legacy mode but hasn't yet downloaded the corresponding binary.
+    if not util.pathExists(binary) then
+        local fallback = use_legacy
+            and plugin_path .. "syncthing"
+            or  plugin_path .. "syncthing-legacy"
+        if util.pathExists(fallback) then
+            binary = fallback
+        else
+            logger.warn("[Syncthing] Cannot set password: no Syncthing binary found")
+            return false, "Syncthing binary not found in plugin folder"
+        end
+    end
+
+    if not util.pathExists(config_dir) then
+        util.makePath(config_dir)
+        if not util.pathExists(config_dir) then
+            logger.warn("[Syncthing] Could not create config directory: " .. config_dir)
+            return false, "Could not create config directory"
+        end
+    end
+
+    local config_xml = config_dir .. "/config.xml"
+    local FS = require("st_filesystem")
+
+    if password and password ~= "" then
+        -- Set / update the password using `syncthing generate`.  This
+        -- creates config.xml if it doesn't exist, or rewrites the
+        -- <user>/<password> entries if it does.
+        local cmd = string.format(
+            "'%s' generate --data='%s' --config='%s' --gui-user='%s' --gui-password='%s' 2>&1",
+            shellEscape(binary),
+            shellEscape(config_dir),
+            shellEscape(config_dir),
+            shellEscape(user),
+            shellEscape(password))
+		local f = io.popen(cmd)
+		local output = "(no output)"
+		local cmd_ok = false
+		if f then
+			output = f:read("*a") or output
+			-- f:close() returns ok, exit_type, exit_code
+			local ok_close, _, exit_code = f:close()
+			cmd_ok = (ok_close == true) or (exit_code == 0)
+		end
+		-- Fail if command failed OR config.xml is still missing
+		if not cmd_ok or not util.pathExists(config_xml) then
+			logger.warn("[Syncthing] setGUIPassword failed; output: " .. output)
+			return false, "Failed to write config.xml: " .. output:sub(1, 200)
+		end
+		return true
+    else
+        -- Remove the password by stripping <user>/<password> elements
+        -- from config.xml.  Read, transform, write back, and verify the
+        -- write succeeded.
+        if not util.pathExists(config_xml) then
+            -- Nothing to do — there was no config to remove a password
+            -- from.  This is a successful no-op.
+            return true
+        end
+        local f = io.open(config_xml, "r")
+        if not f then return false, "Could not open config.xml for reading" end
+        local content = f:read("*a")
+        f:close()
+        if not content then return false, "config.xml was empty or unreadable" end
+
+        content = content:gsub("%s*<user>[^<]*</user>%s*", "")
+        content = content:gsub("%s*<password>[^<]*</password>%s*", "")
+
+        local ok, err = FS.write(config_xml, content)
+        if not ok then
+            return false, "Failed to write config.xml: " .. tostring(err)
+        end
+        return true
+    end
+end
+
+---------------------------------------------------------------------------
+-- getFreeSpace(path)
+--
+-- Returns the number of free bytes on the filesystem containing `path`,
+-- or nil if it cannot be determined.  Used to warn the user before a
+-- Quick Sync would fill up the device — Syncthing has no built-in space
+-- check and will happily fill a Kindle to zero free bytes.
+--
+-- Implementation: shell out to `df`.  We try a few invocations:
+--
+--   1. `df -k -P '<path>'`  — POSIX-conformant, single-line per mount.
+--      Available on busybox >= 1.13 and on GNU coreutils.  This is the
+--      preferred form because the column layout is guaranteed.
+--   2. `df -k '<path>'`     — fallback for any df that doesn't recognise
+--      -P (very old busybox, or stripped builds).  Output may wrap onto
+--      two lines if the device path is long; we handle that case.
+--
+-- If both fail or the output is unparseable, returns nil.  Callers must
+-- handle nil gracefully — typically by skipping the disk-space check
+-- rather than blocking the user.
+---------------------------------------------------------------------------
+local function _parseDfOutput(content, available_col)
+    -- Parse df output.  available_col is the 1-based column index where
+    -- the "Available" KB count lives — 4 for the standard 6-column
+    -- layout (Filesystem 1K-blocks Used Available Use% Mounted-on).
+    --
+    -- Some df versions wrap long device paths onto a separate header
+    -- line: "/dev/some/very/long/path\n   123456  78901  3456  ..."
+    -- so we collect ALL numeric tokens from data lines and look for a
+    -- row that has at least available_col numbers.
+    local lines = {}
+    for line in content:gmatch("[^\n]+") do table.insert(lines, line) end
+    if #lines < 2 then return nil end
+
+    -- Skip the header.  Try every subsequent line; collect leading
+    -- numeric tokens.  When the first token is non-numeric (a device
+    -- path), skip it; when it is numeric (continuation line), include it.
+    for i = 2, #lines do
+        local tokens = {}
+        for tok in lines[i]:gmatch("%S+") do table.insert(tokens, tok) end
+
+        -- If the line has fewer columns than expected and the next line
+        -- exists, try to merge (handles wrapping).
+        if #tokens < available_col and i < #lines then
+            for tok in lines[i + 1]:gmatch("%S+") do
+                table.insert(tokens, tok)
+            end
+        end
+
+        -- Find the first run of numeric tokens; "Available" is the third
+        -- numeric value (1K-blocks, Used, Available).
+        local nums = {}
+        for _, t in ipairs(tokens) do
+            local n = tonumber(t)
+            if n then table.insert(nums, n) end
+        end
+        if #nums >= 3 then
+            -- nums[3] is Available KB.
+            return nums[3]
+        end
+    end
+    return nil
+end
+
+local function getFreeSpace(path)
+    if not path or path == "" then return nil end
+
+    -- Primary attempt: -k -P (POSIX-portable, single-line guaranteed).
+    local f = io.popen(string.format(
+        "df -k -P '%s' 2>/dev/null", shellEscape(path)))
+    if f then
+        local content = f:read("*a") or ""
+        f:close()
+        if content ~= "" then
+            local kb = _parseDfOutput(content, 4)
+            if kb then return kb * 1024 end
+        end
+    end
+
+    -- Fallback: -k alone, in case the df on this device doesn't accept -P
+    -- (very old busybox builds).  Same column layout in practice.
+    f = io.popen(string.format(
+        "df -k '%s' 2>/dev/null", shellEscape(path)))
+    if f then
+        local content = f:read("*a") or ""
+        f:close()
+        if content ~= "" then
+            local kb = _parseDfOutput(content, 4)
+            if kb then return kb * 1024 end
+        end
+    end
+
+    return nil
+end
+
+-- getMountPoint returns the mount point of a path by parsing df output.
+-- Returns the mount point string or nil on failure.
+local function getMountPoint(path)
+    if not path or path == "" then return nil end
+    local f = io.popen(string.format(
+        "df -k -P '%s' 2>/dev/null | awk 'NR>1 {print $NF}'", shellEscape(path)))
+    if not f then return nil end
+    local mp = f:read("*l")
+    f:close()
+    if mp and mp ~= "" then return mp end
+    return nil
+end
+
+local function formatBytes(b)
+    if not b or b == 0 then return "0 B" end
+    local units = { "B", "KB", "MB", "GB", "TB" }
+    local i = 1
+    while b >= 1024 and i < #units do
+        b = b / 1024
+        i = i + 1
+    end
+    if i == 1 then
+        return string.format("%d B", b)
+    end
+    return string.format("%.1f %s", b, units[i])
+end
+
+---------------------------------------------------------------------------
+-- API result helpers
+--
+-- SafeClient always returns a table {ok=bool, error="...", data=...}.
+-- A bare `if result then` is always true (tables are truthy), so every
+-- caller that needs to distinguish success from failure MUST read
+-- result.ok.  These two helpers make that contract explicit and also
+-- handle the nil case (e.g. when a caller forgets `or {}` on a read).
+---------------------------------------------------------------------------
+
+--- Returns true only when `r` is a SafeClient result table with ok==true.
+--- Nil-safe: `isOk(nil)` returns false instead of erroring.
+local function isOk(r)
+    return r ~= nil and r.ok == true
+end
+
+--- Returns the error string from a SafeClient result, or "no response"
+--- when the result is nil or carries no error field.
+local function errOf(r)
+    return (r and r.error) or "no response"
+end
+
+---------------------------------------------------------------------------
+-- Config directory (named local so getDataDir and the public table share
+-- one definition instead of duplicating the path computation).
+--
+--   Standard mode: .../settings/syncthing
+--   Legacy mode:   .../settings/syncthing-legacy
+---------------------------------------------------------------------------
+local function getConfigDir()
+    local base = DataStorage:getFullDataDir() .. "/settings/"
+    return G_reader_settings:isTrue("syncthing_use_legacy")
+        and base .. "syncthing-legacy"
+        or  base .. "syncthing"
+end
+
+---------------------------------------------------------------------------
+-- Data-directory resolution (AD-19).
+--
+-- Syncthing 2.x keeps its SQLite database in the --data directory.  On
+-- Kindle, /mnt/us is a FUSE mount (fuse.fsp) commonly mounted with the
+-- hard_remove option: an unlinked-but-open file is deleted immediately and
+-- every subsequent write/fsync on that descriptor returns ENOENT.  SQLite's
+-- WAL and DELETE-ON-CLOSE temp files use exactly the unlink-then-write
+-- pattern, so the database cannot live there — every index update fails with
+-- "disk I/O error: no such file or directory" (upstream issue jasonchoimtt
+-- /koreader-syncthing#48; reproduced on a Paperwhite 12th-gen).
+--
+-- Detection is BEHAVIOURAL, not by mount options: hard_remove is a libfuse
+-- userspace flag that does NOT appear in /proc/mounts (confirmed on the
+-- affected device, whose mount line is indistinguishable from a safe one).
+-- Probing the actual unlink-then-write behaviour is filesystem- and
+-- model-agnostic and future-proof.  LevelDB (legacy 1.x binaries) is
+-- unaffected, so relocation applies to the standard 2.x binary only.
+---------------------------------------------------------------------------
+
+-- unlinkWriteBroken(dir): true when "open fd, unlink, write" fails in `dir`.
+-- setvbuf("no") forces the write() syscall immediately rather than letting it
+-- sit in stdio's buffer, so the failure surfaces on the write itself.
+local function unlinkWriteBroken(dir)
+    if not dir or dir == "" then return false end
+    local tmp = string.format("%s/.st_hr_probe.%d", dir, os.time())
+    local f = io.open(tmp, "w")
+    if not f then return false end          -- cannot create here: not THIS failure
+    f:setvbuf("no")
+    os.remove(tmp)                          -- unlink while the handle is open
+    local wok = f:write("probe")
+    local fok = f:flush()
+    f:close()
+    os.remove(tmp)                          -- cleanup if it somehow survived
+    return not (wok and fok)
+end
+
+-- _ensureWritableDir(path): create `path` if missing and confirm it is
+-- writable.  Also the survives-firmware-update check: if a previously chosen
+-- directory was wiped, this re-creates it; if the mount itself is gone, it
+-- returns false and the caller recomputes.
+local function _ensureWritableDir(path)
+    if not path or path == "" then return false end
+    if not util.pathExists(path) then util.makePath(path) end
+    if not util.pathExists(path) then return false end
+    local probe = path .. "/.st_w_probe"
+    local f = io.open(probe, "w")
+    if not f then return false end
+    f:close(); os.remove(probe)
+    return true
+end
+
+-- _platformDataCandidates(): persistent, non-FUSE database locations for THIS
+-- platform, in preference order.  Only Kindle has a known-safe ext partition
+-- (/var/local).  Kobo and PocketBook use directly-mounted VFAT for user
+-- storage (NOT affected by hard_remove), and their only ext partition is the
+-- system rootfs (small, overwritten by firmware updates) — so no candidate is
+-- offered there and such devices stay on the config directory.
+local function _platformDataCandidates()
+    if Device and Device.isKindle and Device:isKindle() then
+        return { "/var/local/kosyncthing_plus" }
+    end
+    return {}
+end
+
+-- Tier thresholds (bytes).  A real KOReader index rarely exceeds tens of MB.
+local DATA_DIR_COMFORT = 80 * 1024 * 1024   -- prefer a candidate with >= this
+local DATA_DIR_MINIMUM = 20 * 1024 * 1024   -- refuse a candidate below this
+
+-- resolveDataDir(config_dir, opts) -> data_dir, reason, note
+-- opts (all optional; used by tests): legacy, sticky, candidates,
+--   comfort_bytes, min_bytes, probe, free_space.  In production these derive
+--   from settings/Device and the real probe; tests inject probe/free_space to
+--   exercise the broken-filesystem path without a real FUSE mount.
+local function resolveDataDir(config_dir, opts)
+    opts = opts or {}
+    local comfort   = opts.comfort_bytes or DATA_DIR_COMFORT
+    local minimum   = opts.min_bytes     or DATA_DIR_MINIMUM
+    local probe     = opts.probe         or unlinkWriteBroken
+    local freespace = opts.free_space    or getFreeSpace
+
+    -- Legacy (LevelDB) is not affected — never relocate.
+    if opts.legacy == nil then
+        if G_reader_settings:isTrue("syncthing_use_legacy") then
+            return config_dir, "legacy", nil
+        end
+    elseif opts.legacy then
+        return config_dir, "legacy", nil
+    end
+
+    -- Sticky / manual override: a previously chosen (or user-set) directory,
+    -- reused only if it still exists, is writable, AND is not itself broken.
+    local sticky = opts.sticky
+    if sticky == nil then sticky = G_reader_settings:readSetting("syncthing_data_dir") end
+    if sticky and sticky ~= "" and sticky ~= config_dir then
+        if _ensureWritableDir(sticky) and not probe(sticky) then
+            return sticky, "sticky", nil
+        end
+    end
+
+    -- Probe where the database would actually live.
+    if not probe(config_dir) then
+        return config_dir, "clean", nil
+    end
+
+    -- Broken: walk candidates in preference order.  Aggressive — take the
+    -- first safe candidate with >= minimum, even if below comfort (with note).
+    local candidates = opts.candidates or _platformDataCandidates()
+    for _, cand in ipairs(candidates) do
+        local parent = cand:match("^(.+)/[^/]+$") or cand
+        if util.pathExists(parent) or _ensureWritableDir(parent) then
+            local free = freespace(parent)
+            local safe = _ensureWritableDir(parent) and not probe(parent)
+            if safe and free then
+                if free >= comfort then
+                    _ensureWritableDir(cand)
+                    return cand, "redirected", nil
+                elseif free >= minimum then
+                    _ensureWritableDir(cand)
+                    return cand, "redirected_tight",
+                        string.format("low space on %s (%d MB free)",
+                                      parent, math.floor(free / 1048576))
+                end
+            end
+        end
+    end
+
+    -- Nothing better — stay put; the caller surfaces a visible warning.
+    return config_dir, "fallback_warn", nil
+end
+
+-- Session cache so the probe runs at most once per run.
+local _data_dir_cache, _data_dir_reason, _data_dir_note
+local function invalidateDataDirCache()
+    _data_dir_cache, _data_dir_reason, _data_dir_note = nil, nil, nil
+end
+
+-- True when a folder scan/pull error is the transient, rescan-fixable kind.
+-- Syncthing reports these as "… changed during hashing" / "changed during scan"
+-- when a file is still being written while Syncthing reads it; a rescan retries.
+-- Permission / no-space / folder-marker / I/O errors do NOT match: a rescan
+-- will not clear them, so the UI must not promise a "fix" for those.
+local function isTransientFolderError(msg)
+    return tostring(msg):lower():find("changed during", 1, true) ~= nil
+end
+
+return {
+    isTransientFolderError    = isTransientFolderError,
+    formatBytes               = formatBytes,
+    formatTime                = formatTime,
+    getDeviceIP               = getDeviceIP,
+    getFreeSpace              = getFreeSpace,
+	getMountPoint			  = getMountPoint,
+    shellEscape               = shellEscape,
+    isValidDeviceID           = isValidDeviceID,
+    copyToClipboard           = copyToClipboard,
+    execOk                    = execOk,
+    loopbackIsUp              = loopbackIsUp,
+    invalidateLoopbackCache   = invalidateLoopbackCache,
+    kindleOpenPort            = kindleOpenPort,
+    kindleClosePort           = kindleClosePort,
+    curlAvailable             = curlAvailable,
+    invalidateCurlCache       = invalidateCurlCache,
+    cacertExists              = cacertExists,
+    setGUIPassword            = setGUIPassword,
+    DANGEROUS_PATHS           = DANGEROUS_PATHS,
+    NO_CACERT_MSG             = NO_CACERT_MSG,
+    FOLDER_CACHE_TTL          = FOLDER_CACHE_TTL,
+    ALL_SETTINGS_KEYS         = ALL_SETTINGS_KEYS,
+    plugin_path               = plugin_path,
+    cacert_path               = cacert_path,
+    isOk                      = isOk,
+    errOf                     = errOf,
+
+    -- ---------------------------------------------------------------------------
+    -- Legacy-mode helpers — evaluated at CALL TIME, not at module load time.
+    --
+    -- The critical design choice here is that all three functions read from
+    -- G_reader_settings on every invocation instead of caching a static value
+    -- at require() time.  This matters because:
+    --   1. st_utils is the very first module loaded by main.lua, long before
+    --      legacy.lua has had a chance to run its init() logic.
+    --   2. G_reader_settings is a KOReader global that is always available and
+    --      always reflects the current on-disk state.
+    -- Using a frozen table field (the old syncthing_binary approach) would
+    -- evaluate the condition once and lock it in for the entire session,
+    -- meaning legacy mode could never take effect without a full KOReader restart
+    -- — and even then only if the module cache happened to be cleared.
+    -- ---------------------------------------------------------------------------
+    isLegacy = function()
+        -- True when legacy mode has been explicitly enabled by the user.
+        return G_reader_settings:isTrue("syncthing_use_legacy")
+    end,
+
+    getBinaryPath = function()
+        -- Returns the path to the active Syncthing binary.
+        -- When legacy mode is off this is the standard "syncthing" binary;
+        -- when it is on it is "syncthing-legacy" in the same plugin folder.
+        -- All callers that formerly used U.syncthing_binary (a frozen string)
+        -- now call this function so the correct binary is always addressed.
+        return G_reader_settings:isTrue("syncthing_use_legacy")
+            and plugin_path .. "syncthing-legacy"
+            or  plugin_path .. "syncthing"
+    end,
+
+    -- Single source of truth for the config directory (see the named local
+    -- above).  Used by st_api, st_process, st_settings, main, legacy.
+    getConfigDir = getConfigDir,
+
+    -- Behavioural probe and resolver, exported for the test suite.
+    unlinkWriteBroken      = unlinkWriteBroken,
+    resolveDataDir         = resolveDataDir,
+    invalidateDataDirCache = invalidateDataDirCache,
+
+    -- getDataDir(): the active Syncthing DATABASE directory, mirroring
+    -- getConfigDir().  On an affected Kindle (standard 2.x binary) it relocates
+    -- the database off the hard_remove FUSE mount to a persistent ext partition;
+    -- everywhere else it equals the config directory.  Resolved once per session
+    -- and the choice persisted in syncthing_data_dir so it is stable across
+    -- restarts.  Returns: dir, reason, note.
+    --   reason ∈ { legacy, sticky, clean, redirected, redirected_tight,
+    --              fallback_warn }
+    getDataDir = function()
+        if _data_dir_cache then
+            return _data_dir_cache, _data_dir_reason, _data_dir_note
+        end
+        local config_dir = getConfigDir()
+        local dir, reason, note = resolveDataDir(config_dir)
+        if (reason == "redirected" or reason == "redirected_tight")
+                and dir ~= config_dir then
+            G_reader_settings:saveSetting("syncthing_data_dir", dir)
+        end
+        _data_dir_cache, _data_dir_reason, _data_dir_note = dir, reason, note
+        return dir, reason, note
+    end,
+}

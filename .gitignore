@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# The syncthing binary — downloaded at runtime, never shipped in the repo
+kosyncthing_plus.koplugin/syncthing
+
+# Build artifacts
+*.zip
+*.tar.gz
