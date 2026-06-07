@@ -84,7 +84,7 @@ local function runAutoStart(self, reason, callback)
         startSilent(self, callback)
     end
 
-if hasNetwork() then
+    if hasNetwork() then
         do_start()
     else
         -- Try to bring Wi-Fi up; if it fails, just leave.
