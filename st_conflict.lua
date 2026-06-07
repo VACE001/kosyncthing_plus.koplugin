@@ -12,7 +12,7 @@ local FS = require("st_filesystem")
 
 -- Format a Unix timestamp to a short human-readable date+time string.
 local function formatMtime(t)
-    if not t then return _("unknown") end
+    if not t then return _("no date") end
     return os.date("%Y-%m-%d %H:%M", t)
 end
 
@@ -62,7 +62,7 @@ end
 -- Pattern: ["percent_finished"] = 0.47
 -- Older KOReader versions (pre-2022) wrote "last_percent" instead;
 -- we fall back to it so conflicts from mixed-version setups show a
--- number rather than "unknown".
+-- number rather than "no date".
 -- Returns the value as a number, or nil if absent / unreadable.
 local function _readPercent(path)
     local f = io.open(path, "r")
@@ -217,8 +217,8 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
         local conf_raw = _readPercent(conflict_path)
         local orig_pct = orig_raw and math.floor(orig_raw * 100 + 0.5) or nil
         local conf_pct = conf_raw and math.floor(conf_raw * 100 + 0.5) or nil
-        local orig_str = orig_pct and (orig_pct .. "%") or _("unknown")
-        local conf_str = conf_pct and (conf_pct .. "%") or _("unknown")
+        local orig_str = orig_pct and (orig_pct .. "%") or _("no date")
+        local conf_str = conf_pct and (conf_pct .. "%") or _("no date")
 
         UIManager:show(ConfirmBox:new{
             text = T(_(
@@ -240,7 +240,7 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
     -- Best-effort: also try to resolve the short device ID embedded in the
     -- conflict filename to a human-readable device name.  Falls back silently
     -- (no name shown) when the daemon is not running or the device is unknown.
-    local orig_mtime = fileMtime(original_path)
+	local orig_mtime = fileMtime(original_path)
     local conf_mtime = fileMtime(conflict_path)
     local orig_ts    = formatMtime(orig_mtime)
     local conf_ts    = formatMtime(conf_mtime)
@@ -250,43 +250,67 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
         local ok, id = pcall(function() return self:getDeviceId() end)
         return (ok and type(id) == "string") and id:sub(1, 7) or nil
     end)()
-    local conf_device_name
-    if short_id and my_short and short_id == my_short:upper() then
-        -- The conflict copy is OUR own version that Syncthing moved aside
-        -- because the remote write arrived first.
-        conf_device_name = _("this device")
-    else
-        conf_device_name = _deviceNameForShortId(self, short_id)
-    end
+    -- conflict_is_mine: the conflict copy was last written by this device.
+    -- Syncthing moved our version aside when a remote write arrived first,
+    -- so original_path now holds the incoming change, not our own version.
+    local conflict_is_mine = short_id and my_short and short_id == my_short:upper()
+    local conf_device_name = (not conflict_is_mine)
+        and _deviceNameForShortId(self, short_id)
+        or nil
     local conf_ts_full = conf_device_name
         and (conf_ts .. " (" .. conf_device_name .. ")")
         or  conf_ts
 
-    local newer_hint = ""
-    if orig_mtime and conf_mtime then
-        if orig_mtime > conf_mtime then
-            newer_hint = _("\n\n-> Your version is newer.")
-        elseif conf_mtime > orig_mtime then
-            newer_hint = _("\n\n-> The other version is newer.")
-        else
-            newer_hint = _("\n\n-> Both versions have the same timestamp.")
+    if conflict_is_mine then
+        local newer_hint = ""
+        if orig_mtime and conf_mtime then
+            if conf_mtime > orig_mtime then
+                newer_hint = _("\n\n-> Your version is newer.")
+            elseif orig_mtime > conf_mtime then
+                newer_hint = _("\n\n-> The incoming version is newer.")
+            else
+                newer_hint = _("\n\n-> Both versions have the same timestamp.")
+            end
         end
+        UIManager:show(ConfirmBox:new{
+            text = T(_(
+                "File conflict: \"%1\"\n\n"
+                .. "Syncthing received a change from another device and\n"
+                .. "set your local version aside as a conflict copy.\n\n"
+                .. "Incoming version:  %2\n"
+                .. "Your version:      %3%4\n\n"
+                .. "Keep which version?"),
+                name, orig_ts, conf_ts, newer_hint),
+            ok_text         = T(_("Keep incoming (%1)"), orig_ts),
+            cancel_text     = T(_("Restore mine (%1)"),  conf_ts),
+            ok_callback     = doKeepLocal,
+            cancel_callback = doUseConflict,
+        })
+    else
+        local newer_hint = ""
+        if orig_mtime and conf_mtime then
+            if orig_mtime > conf_mtime then
+                newer_hint = _("\n\n-> Your version is newer.")
+            elseif conf_mtime > orig_mtime then
+                newer_hint = _("\n\n-> The other version is newer.")
+            else
+                newer_hint = _("\n\n-> Both versions have the same timestamp.")
+            end
+        end
+        UIManager:show(ConfirmBox:new{
+            text = T(_(
+                "File conflict: \"%1\"\n\n"
+                .. "Your version:   %2\n"
+                .. "Other version:  %3%4\n\n"
+                .. "Keep which version?"),
+                name, orig_ts, conf_ts_full, newer_hint),
+            ok_text         = T(_("Mine (%1)"),   orig_ts),
+            cancel_text     = T(_("Theirs (%1)"), conf_ts_full),
+            ok_callback     = doKeepLocal,
+            cancel_callback = doUseConflict,
+        })
     end
-
-    UIManager:show(ConfirmBox:new{
-        text = T(_(
-            "File conflict: \"%1\"\n\n"
-            .. "Your version:   %2\n"
-            .. "Other version:  %3%4\n\n"
-            .. "Keep which version?"),
-            name, orig_ts, conf_ts_full, newer_hint),
-        ok_text         = T(_("Mine (%1)"),   orig_ts),
-        cancel_text     = T(_("Theirs (%1)"), conf_ts_full),
-        ok_callback     = doKeepLocal,
-        cancel_callback = doUseConflict,
-    })
 end
-
 ---------------------------------------------------------------------------
 -- autoMergeReadingProgress(conflict_paths)
 --
