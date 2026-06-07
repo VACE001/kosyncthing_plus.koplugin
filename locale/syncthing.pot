@@ -15,21 +15,21 @@ msgid ""
 " ⚠ Wi-Fi appears disconnected. The Web GUI is only reachable from this device."
 msgstr ""
 
-#: st_conflict.lua:211
+#: st_conflict.lua:272
 msgid ""
 "\n"
 "\n"
 "-> Both versions have the same timestamp."
 msgstr ""
 
-#: st_conflict.lua:209
+#: st_conflict.lua:270
 msgid ""
 "\n"
 "\n"
 "-> The other version is newer."
 msgstr ""
 
-#: st_conflict.lua:207
+#: st_conflict.lua:268
 msgid ""
 "\n"
 "\n"
@@ -158,6 +158,10 @@ msgstr ""
 
 #: st_menu.lua:1440
 msgid "View, filter, or clear the Syncthing log."
+msgstr ""
+
+#: st_conflict.lua:257
+msgid "this device"
 msgstr ""
 
 #: st_menu.lua:196
@@ -424,7 +428,7 @@ msgid "Body"
 msgstr ""
 
 #: legacy.lua:678 legacy.lua:715 legacy.lua:781 legacy.lua:825
-#: st_android.lua:440 st_conflict.lua:106 st_menu.lua:108 st_menu.lua:556
+#: st_android.lua:440 st_conflict.lua:147 st_menu.lua:108 st_menu.lua:556
 #: st_menu.lua:877 st_menu.lua:913 st_menu.lua:1024 st_menu.lua:1247
 #: st_menu.lua:1426 st_menu.lua:1791 st_menu.lua:1821 st_pair.lua:220
 #: st_pair.lua:411 st_reset.lua:249 st_reset.lua:265 st_reset.lua:276
@@ -546,15 +550,15 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
-#: st_conflict.lua:161
+#: st_conflict.lua:202
 msgid "Conflict copy discarded."
 msgstr ""
 
-#: st_conflict.lua:116
+#: st_conflict.lua:157
 msgid "Conflict version of \"%1\" applied."
 msgstr ""
 
-#: st_conflict.lua:130
+#: st_conflict.lua:171
 msgid ""
 "Conflict: \"%1\"\n"
 "\n"
@@ -633,7 +637,7 @@ msgid ""
 "Check file system permissions."
 msgstr ""
 
-#: st_conflict.lua:51
+#: st_conflict.lua:85
 msgid ""
 "Could not determine the original file path from:\n"
 "%1\n"
@@ -843,7 +847,7 @@ msgid ""
 "Syncthing will be stopped. Restart it to use the standard binary."
 msgstr ""
 
-#: st_conflict.lua:135
+#: st_conflict.lua:176
 msgid "Discard it"
 msgstr ""
 
@@ -938,7 +942,7 @@ msgstr ""
 msgid "Failed (I/O error): %1"
 msgstr ""
 
-#: st_conflict.lua:121
+#: st_conflict.lua:162
 msgid ""
 "Failed to apply conflict version: %1\n"
 "\n"
@@ -952,14 +956,14 @@ msgid ""
 "Check the API error log under Maintenance."
 msgstr ""
 
-#: st_conflict.lua:97
+#: st_conflict.lua:138
 msgid ""
 "Failed to delete conflict copy: %1\n"
 "\n"
 "Check file permissions."
 msgstr ""
 
-#: st_conflict.lua:166
+#: st_conflict.lua:207
 msgid "Failed to discard conflict copy: %1"
 msgstr ""
 
@@ -970,11 +974,11 @@ msgid ""
 "Check the API error log under Maintenance."
 msgstr ""
 
-#: st_conflict.lua:150
+#: st_conflict.lua:191
 msgid "Failed to save: %1"
 msgstr ""
 
-#: st_conflict.lua:216
+#: st_conflict.lua:277
 msgid ""
 "File conflict: \"%1\"\n"
 "\n"
@@ -1058,11 +1062,11 @@ msgstr ""
 msgid "Keep ALL mine"
 msgstr ""
 
-#: st_conflict.lua:134
+#: st_conflict.lua:175
 msgid "Keep as new file"
 msgstr ""
 
-#: st_conflict.lua:92
+#: st_conflict.lua:133
 msgid "Kept your version of \"%1\". Conflict copy deleted."
 msgstr ""
 
@@ -1136,7 +1140,7 @@ msgstr ""
 msgid "Maintenance"
 msgstr ""
 
-#: st_conflict.lua:189 st_conflict.lua:222
+#: st_conflict.lua:230 st_conflict.lua:283
 msgid "Mine (%1)"
 msgstr ""
 
@@ -1486,7 +1490,7 @@ msgid ""
 msgstr ""
 
 #: st_update.lua:461
-msgid "Please connect to Wi-Fi before checking for updates."
+msgid "Please connect to the Internet before checking for updates."
 msgstr ""
 
 #: st_android.lua:461 st_menu.lua:889
@@ -1565,7 +1569,7 @@ msgstr ""
 msgid "Re-download legacy binary (%1)"
 msgstr ""
 
-#: st_conflict.lua:183
+#: st_conflict.lua:224
 msgid ""
 "Reading progress conflict: \"%1\"\n"
 "\n"
@@ -1605,7 +1609,7 @@ msgid ""
 "The files on disk are NOT deleted. Syncthing will stop tracking this folder."
 msgstr ""
 
-#: st_conflict.lua:104
+#: st_conflict.lua:145
 msgid ""
 "Replace your local \"%1\" with the conflict copy?\n"
 "\n"
@@ -1758,7 +1762,7 @@ msgstr ""
 msgid "Save"
 msgstr ""
 
-#: st_conflict.lua:145
+#: st_conflict.lua:186
 msgid "Saved as \"%1\"."
 msgstr ""
 
@@ -2136,7 +2140,7 @@ msgid ""
 "It will keep watching for up to 5 minutes. Close the QR code when done."
 msgstr ""
 
-#: st_conflict.lua:190 st_conflict.lua:223
+#: st_conflict.lua:231 st_conflict.lua:284
 msgid "Theirs (%1)"
 msgstr ""
 
@@ -2204,7 +2208,7 @@ msgid ""
 "If Syncthing isn't installed yet, this option offers to download it."
 msgstr ""
 
-#: st_conflict.lua:15 st_conflict.lua:179 st_conflict.lua:180 st_menu.lua:690
+#: st_conflict.lua:15 st_conflict.lua:220 st_conflict.lua:221 st_menu.lua:690
 #: st_menu.lua:707
 msgid "unknown"
 msgstr ""
@@ -2328,7 +2332,7 @@ msgstr ""
 msgid "yes"
 msgstr ""
 
-#: st_conflict.lua:105
+#: st_conflict.lua:146
 msgid "Yes, replace it"
 msgstr ""
 
