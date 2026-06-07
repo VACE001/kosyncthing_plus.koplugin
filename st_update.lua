@@ -134,19 +134,24 @@ local function _finishInstallation(self, version, post_install_callback, lease)
     end
 
     os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
-    local extract_ok, extract_err = Device:unpackArchive(tmp_tar_path, tmp_extract_path, true)
+    os.execute("mkdir -p '" .. U.shellEscape(tmp_extract_path) .. "'")
+
+    -- Prefer system tar: always available, handles all tar.gz variants,
+    -- and finishes only after all writes are complete (no FUSE flush issues).
+    local extract_ok = U.execOk(os.execute(
+        "tar -xzf '" .. U.shellEscape(tmp_tar_path) .. "' -C '" .. U.shellEscape(tmp_extract_path) .. "'"))
     if not extract_ok then
-        -- libarchive failed; try system tar as fallback
-        os.execute("mkdir -p '" .. U.shellEscape(tmp_extract_path) .. "'")
-        local tar_ok = U.execOk(os.execute(
-            "tar -xzf '" .. U.shellEscape(tmp_tar_path) .. "' -C '" .. U.shellEscape(tmp_extract_path) .. "'"))
-        if not tar_ok then
+        -- Fall back to KOReader's built-in libarchive wrapper
+        os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
+        local libarchive_ok, libarchive_err = Device:unpackArchive(tmp_tar_path, tmp_extract_path, true)
+        if not libarchive_ok then
             fail_install(_("The downloaded archive is corrupt or extraction failed.\n\nPlease try again.") ..
-                         (extract_err and "\n\nDetails: " .. tostring(extract_err) or ""))
+                         (libarchive_err and "\n\nDetails: " .. tostring(libarchive_err) or ""))
             return
         end
     end
-    -- Ensure FUSE flushes all writes before we scan for the binary
+
+    -- Ensure all writes are flushed before scanning (belt and suspenders for FUSE)
     os.execute("sync")
 
     local fp = io.popen(
