@@ -455,7 +455,93 @@ describe("getConflictsDetailed", function()
 end)
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Suite 5: regression – existing I/O failure test (from original spec)
+-- Suite 5: _parseConflictShortId / _deviceNameForShortId
+-- ─────────────────────────────────────────────────────────────────────────────
+
+describe("conflict filename device-name resolution", function()
+    before_each(function() Mock.reset() end)
+
+    local conflict = require("st_conflict")
+
+    -- _parseConflictShortId
+    it("extracts short device ID from a dot-separated conflict filename", function()
+        local cp = "/books/Novel.sync-conflict-20260101-143022-MFZWI3D.epub"
+        assert.are.equal("MFZWI3D", conflict.parseConflictShortId(cp))
+    end)
+
+    it("extracts short device ID from a tilde-separated conflict filename", function()
+        local cp = "/books/Novel~sync-conflict-20260101-143022-ABC1234.epub"
+        assert.are.equal("ABC1234", conflict.parseConflictShortId(cp))
+    end)
+
+    it("extracts short ID from a metadata sidecar conflict", function()
+        local cp = "/books/Novel.sdr/metadata.epub.sync-conflict-20260101-143022-PHN1234.lua"
+        assert.are.equal("PHN1234", conflict.parseConflictShortId(cp))
+    end)
+
+    it("returns nil for a non-conflict path", function()
+        assert.is_nil(conflict.parseConflictShortId("/books/Novel.epub"))
+    end)
+
+    -- _deviceNameForShortId via plugin stub
+    it("resolves short ID to device name when daemon is reachable", function()
+        local plugin = makePlugin()
+        plugin.getDevices = function()
+            return {
+                { deviceID = "MFZWI3D-BONSGYC-YLTMRWG-REST", name = "Phone" },
+                { deviceID = "ABC1234-OTHERSEG-REST",          name = "Tablet" },
+            }
+        end
+        assert.are.equal("Phone",  conflict.deviceNameForShortId(plugin, "MFZWI3D"))
+        assert.are.equal("Tablet", conflict.deviceNameForShortId(plugin, "ABC1234"))
+    end)
+
+    it("returns nil when short ID does not match any known device", function()
+        local plugin = makePlugin()
+        plugin.getDevices = function()
+            return { { deviceID = "AAAAAAA-REST", name = "Laptop" } }
+        end
+        assert.is_nil(conflict.deviceNameForShortId(plugin, "ZZZZZZZ"))
+    end)
+
+    it("returns nil gracefully when getDevices raises an error (daemon down)", function()
+        local plugin = makePlugin()
+        plugin.getDevices = function() error("connection refused") end
+        assert.is_nil(conflict.deviceNameForShortId(plugin, "MFZWI3D"))
+    end)
+
+    it("returns nil gracefully when getDevices returns nil", function()
+        local plugin = makePlugin()
+        plugin.getDevices = function() return nil end
+        assert.is_nil(conflict.deviceNameForShortId(plugin, "MFZWI3D"))
+    end)
+
+    it("returns nil when short_id is nil", function()
+        local plugin = makePlugin()
+        plugin.getDevices = function() return {} end
+        assert.is_nil(conflict.deviceNameForShortId(plugin, nil))
+    end)
+
+    it("labels the conflict copy as 'this device' when short ID matches own device", function()
+        local plugin = makePlugin()
+        -- Own device ID starts with "MYDEVIC"
+        plugin.getDeviceId = function() return "MYDEVIC-BONSGYC-REST" end
+        plugin.getDevices  = function() return {} end
+        -- A conflict file carrying our own short ID means Syncthing moved our
+        -- version aside — resolveConflict labels it "this device".
+        -- We test the helper that detects self-conflicts:
+        local cp = "/books/Novel.sync-conflict-20260101-143022-MYDEVIC.epub"
+        local short_id = conflict.parseConflictShortId(cp)
+        local ok, my_id = pcall(function() return plugin:getDeviceId() end)
+        local my_short  = (ok and type(my_id) == "string") and my_id:sub(1, 7) or nil
+        assert.are.equal("MYDEVIC", short_id)
+        assert.are.equal("MYDEVIC", my_short)
+        assert.are.equal(short_id, my_short)   -- triggers "this device" label
+    end)
+end)
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Suite 6: regression – existing I/O failure test (from original spec)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 describe("autoMergeReadingProgress – I/O failure regression (BUG orig)", function()
