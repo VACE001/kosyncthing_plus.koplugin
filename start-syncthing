@@ -316,8 +316,9 @@ else
 fi
 PID=$!
 
-# Poll for up to 10 seconds.  A single `sleep 1` is not enough on slow
-# e-ink devices where Syncthing can take several seconds to initialise.
+# Give the binary a moment to crash if it's the wrong architecture or has
+# missing dependencies, then poll for up to 10 seconds.
+sleep 1
 i=0
 while [ "$i" -lt 10 ]; do
     kill -0 "$PID" 2>/dev/null && break
