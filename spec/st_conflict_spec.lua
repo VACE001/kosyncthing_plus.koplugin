@@ -563,3 +563,237 @@ describe("autoMergeReadingProgress – I/O failure regression (BUG orig)", funct
         end)
     end)
 end)
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Suite 7: resolveConflict – unresolvable path
+-- ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolveConflict – unresolvable path", function()
+    before_each(function() Mock.reset() end)
+
+    it("shows a warning InfoMessage when the conflict path has no derivable original", function()
+        local conflict = require("st_conflict")
+        local plugin = makePlugin()
+        -- A path with no .sync-conflict suffix → deriveOriginalPath returns it unchanged
+        conflict.resolveConflict(plugin, "/books/metadata.lua", nil)
+        local w = Mock.state.shown[1]
+        assert.is_not_nil(w)
+        assert.are.equal("notice-warning", w.icon)
+    end)
+end)
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Suite 8: resolveConflict – original file missing
+-- ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolveConflict – original file missing", function()
+    before_each(function() Mock.reset() end)
+
+    it("shows ConfirmBox with 'Keep as new file' / 'Discard it' when original is gone", function()
+        local conflict = require("st_conflict")
+        local plugin = makePlugin()
+        -- ORIG absent from path_exists → util.pathExists returns false
+        Mock.state.path_exists[ORIG] = nil
+        withIO({}, nil, function()
+            conflict.resolveConflict(plugin, CONF, nil)
+        end)
+        local w = Mock.state.shown[1]
+        assert.is_not_nil(w)
+        assert.are.equal("ui/widget/confirmbox", w._widget)
+        assert.are.equal("Keep as new file", w.ok_text)
+        assert.are.equal("Discard it",       w.cancel_text)
+    end)
+
+    it("ok_callback renames conflict to original and invalidates caches", function()
+        local conflict = require("st_conflict")
+        local invalidated = false
+        local plugin = makePlugin()
+        plugin._invalidateConflictCache = function() invalidated = true end
+        Mock.state.path_exists[ORIG] = nil
+        Mock.state.path_exists[CONF] = true
+        withIO({}, nil, function()
+            withRename({ [CONF .. "->" .. ORIG] = true }, function()
+                conflict.resolveConflict(plugin, CONF, nil)
+                local w = Mock.state.shown[1]
+                w.ok_callback()
+            end)
+        end)
+        assert.is_true(invalidated)
+        -- A success InfoMessage (timeout=2) should have been shown
+        local msg = Mock.state.shown[2]
+        assert.is_not_nil(msg)
+        assert.are.equal(2, msg.timeout)
+    end)
+
+    it("cancel_callback removes conflict copy and invalidates caches", function()
+        local conflict = require("st_conflict")
+        local invalidated = false
+        local plugin = makePlugin()
+        plugin._invalidateConflictCache = function() invalidated = true end
+        Mock.state.path_exists[ORIG] = nil
+        Mock.state.path_exists[CONF] = true
+        withIO({}, nil, function()
+            conflict.resolveConflict(plugin, CONF, nil)
+            local w = Mock.state.shown[1]
+            w.cancel_callback()
+        end)
+        assert.is_true(invalidated)
+        local msg = Mock.state.shown[2]
+        assert.is_not_nil(msg)
+        assert.are.equal(2, msg.timeout)
+    end)
+end)
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Suite 9: resolveConflict – reading-progress metadata dialog
+-- ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolveConflict – reading progress metadata", function()
+    before_each(function() Mock.reset() end)
+
+    it("shows progress percentages in dialog text when both sides have percent_finished", function()
+        local conflict = require("st_conflict")
+        local plugin = makePlugin()
+        plugin.getDeviceId = function() return "AAAAAAA-REST" end
+        plugin.getDevices  = function() return {} end
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '["percent_finished"] = 0.30',
+            [CONF] = '["percent_finished"] = 0.80',
+        }, nil, function()
+            conflict.resolveConflict(plugin, CONF, nil)
+        end)
+        local w = Mock.state.shown[1]
+        assert.is_not_nil(w)
+        assert.are.equal("ui/widget/confirmbox", w._widget)
+        -- ok_text / cancel_text carry the percentages
+        assert.is_not_nil(w.ok_text:find("30%%"))
+        assert.is_not_nil(w.cancel_text:find("80%%"))
+    end)
+
+    it("ok_callback (keep local) removes conflict copy", function()
+        local conflict = require("st_conflict")
+        local invalidated = false
+        local plugin = makePlugin()
+        plugin._invalidateConflictCache = function() invalidated = true end
+        plugin.getDeviceId = function() return "AAAAAAA-REST" end
+        plugin.getDevices  = function() return {} end
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '["percent_finished"] = 0.60',
+            [CONF] = '["percent_finished"] = 0.40',
+        }, nil, function()
+            conflict.resolveConflict(plugin, CONF, nil)
+            local w = Mock.state.shown[1]
+            w.ok_callback()  -- "Mine" → keep local → remove conflict
+        end)
+        assert.is_true(invalidated)
+    end)
+
+    it("cancel_callback (use conflict) renames conflict to original", function()
+        local conflict = require("st_conflict")
+        local invalidated = false
+        local plugin = makePlugin()
+        plugin._invalidateConflictCache = function() invalidated = true end
+        plugin.getDeviceId = function() return "AAAAAAA-REST" end
+        plugin.getDevices  = function() return {} end
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '["percent_finished"] = 0.10',
+            [CONF] = '["percent_finished"] = 0.90',
+        }, nil, function()
+            withRename({ [CONF .. "->" .. ORIG] = true }, function()
+                conflict.resolveConflict(plugin, CONF, nil)
+                -- Wrap the second confirm box in another rename-stub scope
+                local w = Mock.state.shown[1]
+                -- "Theirs" → show a second ConfirmBox asking for final confirm
+                w.cancel_callback()
+                -- The nested ConfirmBox's ok_callback performs the rename
+                local w2 = Mock.state.shown[2]
+                assert.is_not_nil(w2)
+                w2.ok_callback()
+            end)
+        end)
+        assert.is_true(invalidated)
+    end)
+end)
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Suite 10: resolveConflict – generic file dialog (conflict_is_mine = false)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolveConflict – generic file dialog", function()
+    before_each(function() Mock.reset() end)
+
+    -- Use a non-metadata epub conflict so no progress branch fires.
+    local EPUB_ORIG = "/books/Novel.epub"
+    local EPUB_CONF = "/books/Novel.sync-conflict-20260101-143022-REMOTE1.epub"
+
+    it("shows timestamps in dialog for a non-metadata file", function()
+        local conflict = require("st_conflict")
+        local plugin = makePlugin()
+        plugin.getDeviceId = function() return "MYDEVIC-REST" end
+        plugin.getDevices  = function() return {} end
+        Mock.state.path_exists[EPUB_ORIG] = true
+        Mock.state.path_exists[EPUB_CONF] = true
+        withIO({}, nil, function()
+            conflict.resolveConflict(plugin, EPUB_CONF, nil)
+        end)
+        local w = Mock.state.shown[1]
+        assert.is_not_nil(w)
+        assert.are.equal("ui/widget/confirmbox", w._widget)
+        -- ok_text carries "Mine" label
+        assert.is_not_nil(w.ok_text:find("Mine"))
+    end)
+
+    it("ok_callback removes conflict (keep local)", function()
+        local conflict = require("st_conflict")
+        local invalidated = false
+        local plugin = makePlugin()
+        plugin._invalidateConflictCache = function() invalidated = true end
+        plugin.getDeviceId = function() return "MYDEVIC-REST" end
+        plugin.getDevices  = function() return {} end
+        Mock.state.path_exists[EPUB_ORIG] = true
+        Mock.state.path_exists[EPUB_CONF] = true
+        withIO({}, nil, function()
+            conflict.resolveConflict(plugin, EPUB_CONF, nil)
+            local w = Mock.state.shown[1]
+            w.ok_callback()
+        end)
+        assert.is_true(invalidated)
+    end)
+end)
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Suite 11: resolveConflict – conflict_is_mine branch
+-- ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolveConflict – conflict_is_mine (Syncthing moved our version aside)", function()
+    before_each(function() Mock.reset() end)
+
+    -- Conflict file carries THIS device's short ID → conflict_is_mine = true.
+    -- original_path then holds the incoming version; conflict_path holds our version.
+    local OWN_ID   = "MYDEVIC"
+    local SELF_CONF = "/books/Novel.epub.sync-conflict-20260201-120000-MYDEVIC"
+    local SELF_ORIG = "/books/Novel.epub"
+
+    it("shows 'Keep incoming / Restore mine' labels when conflict is from this device", function()
+        local conflict = require("st_conflict")
+        local plugin = makePlugin()
+        plugin.getDeviceId = function() return OWN_ID .. "-BONSGYC-REST" end
+        plugin.getDevices  = function() return {} end
+        Mock.state.path_exists[SELF_ORIG] = true
+        Mock.state.path_exists[SELF_CONF] = true
+        withIO({}, nil, function()
+            conflict.resolveConflict(plugin, SELF_CONF, nil)
+        end)
+        local w = Mock.state.shown[1]
+        assert.is_not_nil(w)
+        assert.are.equal("ui/widget/confirmbox", w._widget)
+        assert.is_not_nil(w.ok_text:find("Keep incoming"))
+        assert.is_not_nil(w.cancel_text:find("Restore mine"))
+    end)
+end)
