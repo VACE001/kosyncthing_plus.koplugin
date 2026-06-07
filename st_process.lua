@@ -297,6 +297,8 @@ local function start(self, callback)
 	local silent_start = self._silentStart
     self._silentStart = nil
 
+	G_reader_settings:delSetting("syncthing_user_paused")
+
     if not binaryExists(self) then
         if silent_start then
             if callback then callback() end
