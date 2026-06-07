@@ -30,6 +30,9 @@ end
 
 -- KOReader stores percent_finished as a float in [0, 1].
 -- Pattern: ["percent_finished"] = 0.47
+-- Older KOReader versions (pre-2022) wrote "last_percent" instead;
+-- we fall back to it so conflicts from mixed-version setups show a
+-- number rather than "unknown".
 -- Returns the value as a number, or nil if absent / unreadable.
 local function _readPercent(path)
     local f = io.open(path, "r")
@@ -38,6 +41,7 @@ local function _readPercent(path)
     f:close()
     if not content then return nil end
     local v = content:match('"percent_finished"[^=]*=%s*([%d%.]+)')
+           or content:match('"last_percent"[^=]*=%s*([%d%.]+)')
     return v and tonumber(v) or nil
 end
 
@@ -61,14 +65,21 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
     local is_main_metadata = conflict_path:match("%.sdr/metadata%.[^/]+%.lua$") ~= nil
     local has_reading_progress = false
     if is_main_metadata then
-        local f = io.open(conflict_path, "r")
-        if f then
-            local content = f:read("*a")
+        -- Check both files: if either side has a percent field the dialog
+        -- is meaningful. Checking only the conflict copy missed the case
+        -- where the original was written by an older KOReader build that
+        -- used "last_percent" instead of "percent_finished".
+        local function _fileHasPercent(path)
+            local f = io.open(path, "r")
+            if not f then return false end
+            local c = f:read("*a")
             f:close()
-            if content and content:match('"percent_finished"') then
-                has_reading_progress = true
-            end
+            return c ~= nil
+                and (c:match('"percent_finished"') ~= nil
+                  or c:match('"last_percent"')     ~= nil)
         end
+        has_reading_progress = _fileHasPercent(conflict_path)
+                            or _fileHasPercent(original_path)
     end
 
     local function displayName(p)
@@ -317,9 +328,9 @@ local function getConflictsDetailed(self)
         local local_pct, remote_pct
         if is_metadata then
             if orig and orig ~= cp then
-                local_pct = _readPercent(orig)
+                local_pct  = _readPercent(orig)
                 remote_pct = _readPercent(cp)
-                if local_pct and remote_pct then
+                if local_pct or remote_pct then
                     has_progress = true
                 end
             end
