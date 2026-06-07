@@ -28,6 +28,36 @@ local function deriveOriginalPath(conflict_path)
     return conflict_path:gsub("%.sync%-conflict%-[%d%-]+%-[%dA-Z]+(%.?[^/]*)$", "%1")
 end
 
+-- Extract the short device ID embedded in a conflict filename.
+-- Syncthing names conflict files as:
+--   <stem>.sync-conflict-YYYYMMDD-HHMMSS-<SHORTID>.<ext>
+-- where SHORTID is the first 7 characters of the full Syncthing device ID
+-- (the part before the first dash, e.g. "MFZWI3D" from
+-- "MFZWI3D-BONSGYC-YLTMRWG-...").  The separator before "sync-conflict"
+-- can be either "." or "~" depending on the Syncthing version / OS.
+-- Returns nil when the pattern is not found.
+local function _parseConflictShortId(conflict_path)
+    local fname = conflict_path:match("([^/]+)$") or conflict_path
+    return fname:match("[.~]sync%-conflict%-%d+%-%d+%-([A-Z0-9]+)")
+end
+
+-- Try to resolve a Syncthing short device ID to a human-readable device
+-- name.  Calls self:getDevices() which requires the daemon to be running;
+-- returns nil silently on any failure so callers can fall back gracefully.
+local function _deviceNameForShortId(self, short_id)
+    if not short_id or short_id == "" then return nil end
+    local ok, devices = pcall(function() return self:getDevices() end)
+    if not ok or type(devices) ~= "table" then return nil end
+    for _, dev in ipairs(devices) do
+        local did = type(dev) == "table" and dev.deviceID
+        if type(did) == "string" and did:sub(1, #short_id) == short_id then
+            local n = dev.name
+            return (type(n) == "string" and n ~= "") and n or nil
+        end
+    end
+    return nil
+end
+
 -- KOReader stores percent_finished as a float in [0, 1].
 -- Pattern: ["percent_finished"] = 0.47
 -- Older KOReader versions (pre-2022) wrote "last_percent" instead;
@@ -207,10 +237,30 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
 
     -- For non-metadata files, show file timestamps so the user can make
     -- an informed choice: the newer mtime almost always means the more recent edit.
+    -- Best-effort: also try to resolve the short device ID embedded in the
+    -- conflict filename to a human-readable device name.  Falls back silently
+    -- (no name shown) when the daemon is not running or the device is unknown.
     local orig_mtime = fileMtime(original_path)
     local conf_mtime = fileMtime(conflict_path)
     local orig_ts    = formatMtime(orig_mtime)
     local conf_ts    = formatMtime(conf_mtime)
+
+    local short_id   = _parseConflictShortId(conflict_path)
+    local my_short   = (function()
+        local ok, id = pcall(function() return self:getDeviceId() end)
+        return (ok and type(id) == "string") and id:sub(1, 7) or nil
+    end)()
+    local conf_device_name
+    if short_id and my_short and short_id == my_short:upper() then
+        -- The conflict copy is OUR own version that Syncthing moved aside
+        -- because the remote write arrived first.
+        conf_device_name = _("this device")
+    else
+        conf_device_name = _deviceNameForShortId(self, short_id)
+    end
+    local conf_ts_full = conf_device_name
+        and (conf_ts .. " (" .. conf_device_name .. ")")
+        or  conf_ts
 
     local newer_hint = ""
     if orig_mtime and conf_mtime then
@@ -229,9 +279,9 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
             .. "Your version:   %2\n"
             .. "Other version:  %3%4\n\n"
             .. "Keep which version?"),
-            name, orig_ts, conf_ts, newer_hint),
+            name, orig_ts, conf_ts_full, newer_hint),
         ok_text         = T(_("Mine (%1)"),   orig_ts),
-        cancel_text     = T(_("Theirs (%1)"), conf_ts),
+        cancel_text     = T(_("Theirs (%1)"), conf_ts_full),
         ok_callback     = doKeepLocal,
         cancel_callback = doUseConflict,
     })
@@ -355,5 +405,7 @@ return {
     resolveConflict          = resolveConflict,
     deriveOriginalPath       = deriveOriginalPath,
     autoMergeReadingProgress = autoMergeReadingProgress,
-	getConflictsDetailed     = getConflictsDetailed,
+    getConflictsDetailed     = getConflictsDetailed,
+    parseConflictShortId     = _parseConflictShortId,
+    deviceNameForShortId     = _deviceNameForShortId,
 }
