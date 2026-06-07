@@ -1479,7 +1479,7 @@ callback = self.safe("Diagnostic snapshot", function()
         "Legacy mode:       " .. (U.isLegacy()
             and (G_reader_settings:readSetting("syncthing_legacy_version") or "unknown")
             or  "off"),
-        "Device ID:         " .. (self:getDeviceId() or "unknown (not cached)"),
+        "Device ID:         " .. (self:getDeviceId() and "available" or "not cached"),
         "",
     })
 
