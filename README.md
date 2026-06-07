@@ -36,10 +36,7 @@ Two excellent projects laid the groundwork for running Syncthing on KOReader:
 
 - **[bps/syncthing.koplugin](https://github.com/bps/syncthing.koplugin)** — a clean, focused reimplementation with automatic architecture detection (ARM / ARM64) and binary auto-download from GitHub Releases.
 
-KOSyncthing+ stands on both of their shoulders. It takes those foundations and pushes them much further — a deep,
-polished KOReader menu, automation that truly understands e‑ink, smart
-Wi‑Fi management that never nags you, and a rich public API that lets
-other plugins integrate directly. 
+KOSyncthing+ stands on both of their shoulders. It takes those foundations and pushes them much further — a deep, polished KOReader menu, automation that truly understands e‑ink, smart Wi‑Fi management that never nags you, and a rich public API that lets other plugins integrate directly.
 
 ---
 
@@ -63,7 +60,7 @@ Quick Sync is the one-tap sync flow designed for e-readers that are not left run
    message and releases all resources — the device is not kept awake.
    Periodic Sync will try again at the next scheduled interval;
    manual Quick Sync waits for the next tap.
-   
+
 2. Starts Syncthing, waiting up to 12 seconds for the daemon to initialise.
 
 3. Checks disk space on every synced folder's filesystem — aborts if less than 100 MB free.
@@ -74,12 +71,12 @@ Quick Sync is the one-tap sync flow designed for e-readers that are not left run
 
 6. Shows progress notifications: "Syncing… N items (X MB) remaining".
 
-7. When all folders reach idle with zero `needItems`, reads per-device transfer stats and shows a summary: 
+7. When all folders reach idle with zero `needItems`, reads per-device transfer stats and shows a summary:
    "Sync done — ↑ X sent, ↓ Y received" or "Sync done — everything up to date".
    During the sync, the smart status header updates to show the percentage
    complete (e.g. "Syncing… 45% (12 MB remaining)"). This works both for
    manual Quick Sync and for background sync when the daemon is running.
-   
+
 8. Stops Syncthing and releases the wakelock.
 
 9. Times out after 30 minutes with a warning if folders are still not idle.
@@ -135,13 +132,13 @@ All possible states, in priority order:
 - The first match is shown (e.g. conflicts hide everything else).
 - When the header **starts with `⚠`**, it becomes **tappable** and the tap is
   routed by what is actually wrong, with a matching hint appended:
-  - **Conflicts** → *„ — tap to resolve"*; tap opens *Status & conflicts*.
-  - **Errors a rescan can fix** (transient *„… changed during hashing/scan"*) →
-    *„ — tap to fix"*; tap rescans straight away — the same action as *Rescan all
+  - **Conflicts** → *" — tap to resolve"*; tap opens *Status & conflicts*.
+  - **Errors a rescan can fix** (transient *"… changed during hashing/scan"*) →
+    *" — tap to fix"*; tap rescans straight away — the same action as *Rescan all
     folders*. The *Rescan all folders* / *Quick Sync* button is also relabelled
     **Fix errors** in this state.
   - **Errors a rescan will not fix** (permission denied, no space, folder marker
-    missing, I/O) → *„ — tap to view"*; tap opens *Status & conflicts*, where the
+    missing, I/O) → *" — tap to view"*; tap opens *Status & conflicts*, where the
     real error text is shown. *Status & conflicts* is also always reachable from
     its own row, independent of the header.
 - When everything is fine, the header is greyed out and read‑only.
@@ -226,7 +223,7 @@ LAN only also passes `--no-upgrade` to the daemon and sets `STNOUPGRADE=1`.
 > has **not been tested on real old-kernel hardware** — the author has no
 > such device. Its decision logic (kernel detection and version selection),
 > the GitHub download URLs, and the v1.2.2 API-compatibility shim are covered
-> by an offline test suite (`tests/legacy_spec.lua`, 121 checks), and the
+> by an offline test suite (`spec/st_legacy_spec.lua`, 69 tests), and the
 > download URLs were confirmed against Syncthing's published release assets.
 > But the full on-device path — downloading a years-old Syncthing build,
 > launching it on a 2.6.x/3.0.x kernel, and actually syncing — has never been
@@ -491,7 +488,7 @@ Open **Setup → Pair with another device**. The wizard shows your device ID and
 
 ### 4 — Accept shared folders
 
-After pairing, your sync partner can share folders with you. Open the **KOSyncthing+** menu, go to **Status & conflicts** and check the **Pending** section. When you accept a folder, the plugin suggests placing it at <home_dir>/<folder_label>, but you can edit the path before confirming. You can choose any path you like — the plugin only refuses system directories (like /proc, /sys, /dev) and paths with .. for security reasons.
+After pairing, your sync partner can share folders with you. Open the **KOSyncthing+** menu, go to **Status & conflicts** and check the **Pending** section. When you accept a folder, the plugin suggests placing it at `<home_dir>/<folder_label>`, but you can edit the path before confirming. You can choose any path you like — the plugin only refuses system directories (like /proc, /sys, /dev) and paths with .. for security reasons.
 
 ### 5 — Sync
 
@@ -631,16 +628,16 @@ KOSyncthing+                                   ← top‑level entry
     ├── View logs                             ← opens scrollable log viewer
     ├── Clear log file                        ← deletes log; new one created on
     │   next start
-	├── View errors only                      ← filters log to show only [WARNING]
-	│   and [ERROR] lines
-	├── View API errors (N)                   ← shows up to 8 recent REST API errors;
-	│   only active when errors are stored
-	├── Clear all API errors                  ← removes all stored API errors
-	├── Copy diagnostic info                  ← version, running state, last 5 API
-	│                                           errors and last 20 WARN/ERROR log
-	│                                           lines; shown as QR code + clipboard
-	├── Copy API key                          ← copies REST API key to clipboard;
-	│                                           only active when a key exists
+    ├── View errors only                      ← filters log to show only [WARNING]
+    │   and [ERROR] lines
+    ├── View API errors (N)                   ← shows up to 8 recent REST API errors;
+    │   only active when errors are stored
+    ├── Clear all API errors                  ← removes all stored API errors
+    ├── Copy diagnostic info                  ← version, running state, last 5 API
+    │                                           errors and last 20 WARN/ERROR log
+    │                                           lines; shown as QR code + clipboard
+    ├── Copy API key                          ← copies REST API key to clipboard;
+    │                                           only active when a key exists
     ├── Reset sync database                   ← prompts to stop daemon if running;
     │   deletes index files, forces full
     │   re‑index on next start
@@ -683,8 +680,7 @@ Automatically start Syncthing and keep it running whenever possible.
 should be running but isn't, it tries to start it again.
 • When Wi-Fi disconnects, Syncthing stops automatically.
 • Works also on LAN-only networks without internet access.
-Manually stopping Syncthing
-pauses the auto-start until you start it again.
+• Manually stopping Syncthing pauses auto-start until you start it again.
 
 ### Periodic Quick Sync
 
@@ -695,17 +691,17 @@ The Automation menu shows **"Next sync in: X min"** live.
 - If Wi‑Fi is **already on** (you turned it on manually), Periodic Sync
   uses the existing connection, performs the sync, and **leaves Wi‑Fi on**
   afterwards.
-  
+
 - If Wi‑Fi is **off**, the plugin turns it on before the sync and restores it
   according to your KOReader Wi‑Fi settings afterwards.
-  
+
 - If Wi‑Fi cannot be turned on immediately, Periodic Sync retries with
   **exponential backoff** (30 s → 60 s → 120 s → 240 s, up to **8 minutes**
   total). If Wi‑Fi still cannot connect, it skips this cycle silently
   and waits for the next scheduled run — no manual intervention is
   needed.
-  
-- The plugin uses KOReader's enableWifi to bring up Wi‑Fi automatically when needed. 
+
+- The plugin uses KOReader's enableWifi to bring up Wi‑Fi automatically when needed.
   On platforms where this is not possible, the sync may be skipped.
 
 **Required KOReader Wi‑Fi settings**
@@ -776,13 +772,16 @@ Syncthing creates `filename.sync-conflict-YYYYMMDD-HHMMSS-DEVID.ext` files when 
 
 The dialog shown depends on the file type:
 
-**KOReader metadata sidecar** (`*.sdr/metadata.*.lua`) **with `percent_finished`:**
+**KOReader metadata sidecar** (`*.sdr/metadata.*.lua`) **with reading progress:**
 - Shows "Your device: X%" vs "Other device: Y%".
 - Tap **Mine (X%)** or **Theirs (Y%)** to keep that version.
+- Both `percent_finished` (current KOReader format) and `last_percent` (pre-2022 format) are recognised; a dialog is shown if either side has either field.
 
 **Any other file (or metadata without progress):**
 - Shows both modification timestamps with a hint ("→ Your version is newer." etc.).
 - Tap **Mine (timestamp)** or **Theirs (timestamp)**.
+- When the conflict copy carries **this device’s** short ID (Syncthing moved your own version aside when a remote write arrived first), the labels switch to **Keep incoming** / **Restore mine** so the intent is unambiguous.
+- When the device that created the conflict copy is known and reachable, its name is shown alongside the timestamp (e.g. “2026-01-01 12:00 (Phone)”).
 
 **Original file missing:**
 - **Keep as new file** renames the conflict copy to the original path.
@@ -792,7 +791,7 @@ The dialog shown depends on the file type:
 
 The **Resolve all N conflicts…** option offers three strategies:
 
-- **Auto-merge progress** — for each KOReader metadata conflict with `percent_finished` in both copies, keeps whichever has the *higher* reading progress. Non-metadata files are skipped. Shows a summary: "Merged N — kept local for X, kept remote for Y, skipped Z."
+- **Auto-merge progress** — for each KOReader metadata conflict where at least one side has `percent_finished` (or the legacy `last_percent`), keeps whichever has the *higher* reading progress. Non-metadata files and conflicts where neither side has a progress value are skipped. Shows a summary: "Merged N — kept local for X, kept remote for Y, skipped Z."
 - **Keep ALL mine** — discards every conflict copy.
 - **Use ALL theirs** — replaces every local file with its conflict copy.
 
@@ -818,17 +817,15 @@ A quick overview of what's available:
 - **Information** – `getFolders`, `getDevices`, `getPendingDevices`, `getPendingFolders`, `getConflictsDetailed`, `getFolderIgnore`, `setFolderIgnore`
 - **Proxied REST call** – `apiCall(endpoint, method, body)` — talk to Syncthing without ever seeing the API key
 - **Events** – `onStatusChange` / `offStatusChange` (custom listeners) and KOReader global events (`SyncthingStateChanged`, `SyncthingSyncCompleted`, `SyncthingConflictDetected`)
-
-The API is **platform-agnostic**.  On Android (remote mode) every call is transparently routed to the remote Syncthing app — `apiCall` and the `status` / `control` / `info` helpers all work unchanged, and the reported `version` is the same.  Companion plugins need **no** Android-specific code: they consume `_G.KOSyncthingPlusAPI` exactly as they do on Kindle/Kobo.
 - **Utilities** – `formatBytes`, `formatTime`, `isValidDeviceID`
 
-Access it via the global `_G.KOSyncthingPlusAPI` or, preferrably, by requiring the module:
+The API is **platform-agnostic**.  On Android (remote mode) every call is transparently routed to the remote Syncthing app — `apiCall` and the `status` / `control` / `info` helpers all work unchanged, and the reported `version` is the same.  Companion plugins need **no** Android-specific code: they consume `_G.KOSyncthingPlusAPI` exactly as they do on Kindle/Kobo.
+
+Access it via the global `_G.KOSyncthingPlusAPI` or, preferably, by requiring the module:
 
 
-```
-
+```lua
 local Syncthing = require("st_api_public").api
-
 ```
 
 
@@ -978,8 +975,12 @@ kosyncthing_plus.koplugin/
 │                         notifyConflictsChanged)
 │
 ├── st_conflict.lua      findConflicts (find command + IgnoreRegistry exclusions);
-│                        resolveConflict (per-file dialog with missing-original case);
-│                        autoMergeReadingProgress (keep higher percent_finished)
+│                        resolveConflict (per-file dialog: missing-original, reading-progress
+│                        percentage, generic timestamp, conflict_is_mine label swap);
+│                        autoMergeReadingProgress (keep higher percent_finished / last_percent);
+│                        getConflictsDetailed (structured per-conflict metadata for API callers);
+│                        parseConflictShortId / deviceNameForShortId (conflict-filename device ID
+│                        resolution with daemon-down and self-conflict fallbacks)
 ├── st_disabled.lua      Hold-callback helpers that explain why an item is greyed out
 │
 │
