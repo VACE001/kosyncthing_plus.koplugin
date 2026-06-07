@@ -167,6 +167,11 @@ local function getBinaryArch(self)
 end
 
 local function binaryMatchesDevice(self)
+    -- Re-verify with a fresh filesystem read before doing anything.
+    if not U.isELF(U.getBinaryPath()) then
+        invalidateBinaryCache(self)  -- stale; next binaryExists() re-reads
+        return false                 -- start() shows first-run dialog instead
+    end
     local p = io.popen("uname -m 2>/dev/null")
     if not p then return true end
     local line = p:read("*l")
