@@ -207,6 +207,110 @@ describe("autoMergeReadingProgress – success paths", function()
             end)
         end)
     end)
+    -- last_percent fallback (old KOReader format)
+    it("reads last_percent as fallback when percent_finished is absent (remote wins)", function()
+        local conflict = require("st_conflict")
+        local plugin   = makePlugin()
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '[\"last_percent\"] = 0.30',   -- old KOReader format
+            [CONF] = '[\"percent_finished\"] = 0.80',
+        }, nil, function()
+            withRename({ [CONF .. "->" .. ORIG] = true }, function()
+                local stats = conflict.autoMergeReadingProgress(plugin, { CONF })
+                assert.are.equal(1, stats.merged)
+                assert.are.equal(1, stats.kept_remote)  -- 80% > 30%
+                assert.are.equal(0, stats.kept_local)
+            end)
+        end)
+    end)
+
+    it("reads last_percent as fallback when percent_finished is absent (local wins)", function()
+        local conflict = require("st_conflict")
+        local plugin   = makePlugin()
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '[\"last_percent\"] = 0.90',   -- old KOReader format
+            [CONF] = '[\"percent_finished\"] = 0.40',
+        }, nil, function()
+            local stats = conflict.autoMergeReadingProgress(plugin, { CONF })
+            assert.are.equal(1, stats.merged)
+            assert.are.equal(1, stats.kept_local)   -- 90% > 40%
+            assert.are.equal(0, stats.kept_remote)
+        end)
+    end)
+
+    it("reads last_percent on both sides (both old format)", function()
+        local conflict = require("st_conflict")
+        local plugin   = makePlugin()
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '[\"last_percent\"] = 0.55',
+            [CONF] = '[\"last_percent\"] = 0.55',
+        }, nil, function()
+            local stats = conflict.autoMergeReadingProgress(plugin, { CONF })
+            assert.are.equal(1, stats.merged)
+            assert.are.equal(1, stats.kept_local)   -- equal → keep local
+        end)
+    end)
+
+    -- has_reading_progress checks both files (regression: used to check only conflict)
+    it("detects progress when only original has percent_finished (conflict lacks it)", function()
+        local conflict = require("st_conflict")
+        local plugin   = makePlugin({
+            findConflicts = function() return { CONF } end,
+        })
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '[\"percent_finished\"] = 0.65',
+            [CONF] = '[\"last_xpointer\"] = \"/body/p[3]\"',  -- no percent
+        }, nil, function()
+            local rows = conflict.getConflictsDetailed(plugin)
+            -- has_progress must be true: original has percent_finished
+            assert.is_true(rows[1].has_progress)
+            assert.are.equal(65, rows[1].local_progress)
+            assert.is_nil(rows[1].remote_progress)  -- conflict had no percent
+        end)
+    end)
+
+    it("detects progress when only conflict has percent_finished (original lacks it)", function()
+        local conflict = require("st_conflict")
+        local plugin   = makePlugin({
+            findConflicts = function() return { CONF } end,
+        })
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '[\"last_xpointer\"] = \"/body/p[1]\"',  -- no percent
+            [CONF] = '[\"percent_finished\"] = 0.50',
+        }, nil, function()
+            local rows = conflict.getConflictsDetailed(plugin)
+            assert.is_true(rows[1].has_progress)
+            assert.is_nil(rows[1].local_progress)   -- original had no percent
+            assert.are.equal(50, rows[1].remote_progress)
+        end)
+    end)
+
+    it("autoMerge skips when conflict percent is missing even though dialog would show", function()
+        -- has_reading_progress=true (original has percent) but autoMerge
+        -- cannot pick a winner without both sides → skips, does not crash.
+        local conflict = require("st_conflict")
+        local plugin   = makePlugin()
+        Mock.state.path_exists[ORIG] = true
+        Mock.state.path_exists[CONF] = true
+        withIO({
+            [ORIG] = '[\"percent_finished\"] = 0.65',
+            [CONF] = '[\"last_xpointer\"] = \"/body/p[3]\"',
+        }, nil, function()
+            local stats = conflict.autoMergeReadingProgress(plugin, { CONF })
+            assert.are.equal(1, stats.skipped)
+            assert.are.equal(0, stats.merged)
+        end)
+    end)
 end)
 
 -- ─────────────────────────────────────────────────────────────────────────────
