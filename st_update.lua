@@ -458,7 +458,7 @@ local function checkForUpdates(self, post_install_callback, is_new_install)
     end
     if not NetworkMgr:isOnline() then
         UIManager:show(InfoMessage:new{
-            text = _("Please connect to Wi-Fi before checking for updates."),
+            text = _("Please connect to the Internet before checking for updates."),
         })
         return
     end
