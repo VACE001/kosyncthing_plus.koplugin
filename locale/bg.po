@@ -3380,11 +3380,11 @@ msgstr "v1.27.12"
 
 #: st_menu.lua:1281 st_menu.lua:2005
 msgid "Auto-merge conflicts after sync ✓"
-msgstr "Автоматично обединяване на конфликти след синхронизация ✓"
+msgstr "Автоматично сливане след синхронизация ✓"
 
 #: st_menu.lua:1282 st_menu.lua:2006
 msgid "Auto-merge conflicts after sync"
-msgstr "Автоматично обединяване на конфликти след синхронизация"
+msgstr "Автоматично сливане след синхронизация"
 
 #: st_menu.lua:1153 st_menu.lua:2008
 msgid ""
