@@ -2729,3 +2729,19 @@ msgstr ""
 #: st_orchestrator.lua:530
 msgid "Auto-merged reading progress: %1 conflict(s)."
 msgstr ""
+
+#: st_orchestrator.lua
+msgid "Quick Sync skipped — network unavailable."
+msgstr ""
+
+#: st_orchestrator.lua
+msgid "Periodic sync skipped — network unavailable."
+msgstr ""
+
+#: st_sync.lua
+msgid "Quick Sync stopped — network disconnected."
+msgstr ""
+
+#: st_sync.lua
+msgid "Periodic sync: network disconnected."
+msgstr ""
