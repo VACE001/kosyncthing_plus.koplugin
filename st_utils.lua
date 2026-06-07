@@ -254,6 +254,7 @@ local ALL_SETTINGS_KEYS = {
     "syncthing_android_scheme",
     -- Opt-in auto-merge after Quick Sync completes.
     "syncthing_auto_merge_conflicts",
+	"syncthing_user_paused",
 }
 
 local function cacertExists()
