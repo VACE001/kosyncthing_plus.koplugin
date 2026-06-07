@@ -29,10 +29,26 @@
 - Curl is tried before wget for more reliable GitHub downloads.
 - Architecture detection now uses a single shared helper
   (`st_utils.detectArch`).
+  
 - **Autostart no longer breaks after network loss.** Automatic stops
   (network disconnect, app close) were incorrectly setting the `user_paused`
   flag, causing Autostart to stay disabled after reconnecting or restarting
   the app. Only an explicit manual stop now sets the flag.
+  
+- **Conflict dialog no longer shows "unknown" for older devices.** Older
+  KOReader builds (pre-2022) write `last_percent` instead of
+  `percent_finished`; both fields are now recognised when reading progress
+  from metadata sidecar files.
+- **Conflict dialog now appears when only one side has a percent field.**
+  Previously the "reading progress conflict" dialog was suppressed when the
+  conflict copy lacked `percent_finished` even though the local copy had it
+  (or vice versa). The dialog now opens whenever either side carries progress
+  data, showing the known percentage and "unknown" only for the side that
+  genuinely has none.
+- **`getConflictsDetailed` now reports `has_progress = true` when at least
+  one side has a percent field** (previously required both sides). This
+  affects the auto-merge menu display and any companion plugins that read
+  conflict metadata.
 
 ## [v1.1.2] — 2026-06-06
 
