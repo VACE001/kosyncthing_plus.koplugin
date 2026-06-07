@@ -136,10 +136,18 @@ local function _finishInstallation(self, version, post_install_callback, lease)
     os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
     local extract_ok, extract_err = Device:unpackArchive(tmp_tar_path, tmp_extract_path, true)
     if not extract_ok then
-        fail_install(_("The downloaded archive is corrupt or extraction failed.\n\nPlease try again.") ..
-                     (extract_err and "\n\nDetails: " .. tostring(extract_err) or ""))
-        return
+        -- libarchive failed; try system tar as fallback
+        os.execute("mkdir -p '" .. U.shellEscape(tmp_extract_path) .. "'")
+        local tar_ok = U.execOk(os.execute(
+            "tar -xzf '" .. U.shellEscape(tmp_tar_path) .. "' -C '" .. U.shellEscape(tmp_extract_path) .. "'"))
+        if not tar_ok then
+            fail_install(_("The downloaded archive is corrupt or extraction failed.\n\nPlease try again.") ..
+                         (extract_err and "\n\nDetails: " .. tostring(extract_err) or ""))
+            return
+        end
     end
+    -- Ensure FUSE flushes all writes before we scan for the binary
+    os.execute("sync")
 
     local fp = io.popen(
         "find '" .. U.shellEscape(tmp_extract_path) .. "' -name syncthing -type f -maxdepth 3 2>/dev/null")
@@ -217,8 +225,6 @@ local function _finishInstallation(self, version, post_install_callback, lease)
             text = should_restart
                 and T(_("Syncthing updated to v%1 and restarting…"), version)
                 or  T(_("Syncthing v%1 installed!\n\nYou can now start syncing."), version),
-            -- Show the password suggestion right after the user dismisses
-            -- the success message, so they can secure the GUI immediately.
             dismiss_callback = function()
                 if self._suggestPassword and not self.gui_password then
                     self:_suggestPassword()
