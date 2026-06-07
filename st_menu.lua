@@ -1695,6 +1695,7 @@ callback = self.safe("Diagnostic snapshot", function()
     })
     U.copyToClipboard(snapshot)
 end),
+		},
 
         -- Debug: API error viewer (now shows up to 8 recent errors)
         {
