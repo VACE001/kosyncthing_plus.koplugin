@@ -470,7 +470,7 @@ _waitForIdle = function(self, start_time, on_ui_refresh, prev_state, on_finish, 
     end
 
     local elapsed = time.to_s(time.now()) - start_time
-    local timeout = 600
+    local timeout = 1800
 	if elapsed > timeout then
 		if not silent then
 			self:showNotification(_("Quick Sync timed out. Some files may not have been synced."), 5)

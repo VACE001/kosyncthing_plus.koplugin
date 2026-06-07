@@ -34,12 +34,15 @@ local function installRichStUtils(overrides)
             invalidateCurlCache = function() end,
             kindleOpenPort      = overrides.kindleOpenPort   or function() end,
             kindleClosePort     = overrides.kindleClosePort  or function() end,
+            kindleOpenPortUDP   = overrides.kindleOpenPortUDP  or function() end,
+            kindleClosePortUDP  = overrides.kindleClosePortUDP or function() end,
             setGUIPassword      = overrides.setGUIPassword   or function() return true end,
             cacertExists        = overrides.cacertExists     or function() return true end,
             isOk                = function(r) return r ~= nil and r.ok == true end,
             errOf               = function(r) return (r and r.error) or "no response" end,
             FOLDER_CACHE_TTL    = 15,
             formatBytes         = tostring,
+            isELF               = overrides.isELF or function(_path) return true end,
         }
     end
 end

@@ -18,6 +18,7 @@ local JSON = rapidjson_ok and rapidjson or require("json")
 
 local tmp_tar_path     = U.plugin_path .. "syncthing_update.tar.gz"
 local tmp_extract_path = U.plugin_path .. "syncthing_extract"
+local MIN_ARCHIVE_SIZE = 1024 * 1024
 
 ---------------------------------------------------------------------------
 -- Transport helpers
@@ -61,30 +62,28 @@ local function _downloadViaLua(url, save_path)
 end
 
 -- Download a file using the best available transport on the device.
--- Tries wget first (most common on Linux-based e-readers), then curl
--- (faster TLS, requires cacert.pem), and finally the pure-Lua LuaSocket
--- stack that ships with KOReader.
+-- Prefer curl because it handles GitHub redirects and certificate validation
+-- reliably.  Keep wget and KOReader's Lua stack as fallbacks for lean images.
 local function _downloadFile(url, save_path)
-    -- 1. wget — widely available, no extra dependencies
-    local wget_cmd = string.format(
-        "wget -qO '%s' '%s' 2>/dev/null",
-        U.shellEscape(save_path),
-        U.shellEscape(url))
-    if U.execOk(os.execute(wget_cmd)) then
-        return true
-    end
-
-    -- 2. curl — faster and more secure when cacert.pem is present
+    -- 1. curl - reliable GitHub redirects and TLS with our bundled CA store
     if U.curlAvailable() and U.cacertExists() then
         local dl_cmd = string.format(
-            "curl -f -L -s --max-time 600 --cacert '%s' '%s' -o '%s'",
+            "curl -f -L -s --connect-timeout 30 --max-time 600 --retry 2 --retry-delay 2 --cacert '%s' '%s' -o '%s'",
             U.shellEscape(U.cacert_path),
             U.shellEscape(url),
             U.shellEscape(save_path))
         if U.execOk(os.execute(dl_cmd)) then
             return true
         end
-        return false, "curl failed (exit code non-zero). Check network and cacert.pem."
+    end
+
+    -- 2. wget - widely available, but some BusyBox builds are weak on HTTPS.
+    local wget_cmd = string.format(
+        "wget -qO '%s' '%s' 2>/dev/null",
+        U.shellEscape(save_path),
+        U.shellEscape(url))
+    if U.execOk(os.execute(wget_cmd)) then
+        return true
     end
 
     -- 3. KOReader built-in LuaSocket / LuaSec
@@ -118,20 +117,42 @@ local detectArch = U.detectArch
 -- atomically move it into the plugin folder, and announce the result.
 ---------------------------------------------------------------------------
 local function _finishInstallation(self, version, post_install_callback, lease)
-    os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
-    local extract_ok, extract_err = Device:unpackArchive(tmp_tar_path, tmp_extract_path, true)
-    if not extract_ok then
+    local function cleanup()
         os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
         os.execute("rm -f '"  .. U.shellEscape(tmp_tar_path)     .. "'")
+        os.execute("rm -f '"  .. U.shellEscape(U.plugin_path .. "syncthing.new") .. "'")
+    end
+
+    local function fail_install(text)
+        cleanup()
         UIManager:show(InfoMessage:new{
             icon = "notice-warning",
-            text = _("The downloaded archive is corrupt or extraction failed.\n\nPlease try again.") ..
-                   (extract_err and "\n\nDetails: " .. tostring(extract_err) or ""),
+            text = text,
         })
         lease:release()
         if post_install_callback then post_install_callback() end
-        return
     end
+
+    os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
+    os.execute("mkdir -p '" .. U.shellEscape(tmp_extract_path) .. "'")
+
+    -- Prefer system tar: always available, handles all tar.gz variants,
+    -- and finishes only after all writes are complete (no FUSE flush issues).
+    local extract_ok = U.execOk(os.execute(
+        "tar -xzf '" .. U.shellEscape(tmp_tar_path) .. "' -C '" .. U.shellEscape(tmp_extract_path) .. "'"))
+    if not extract_ok then
+        -- Fall back to KOReader's built-in libarchive wrapper
+        os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
+        local libarchive_ok, libarchive_err = Device:unpackArchive(tmp_tar_path, tmp_extract_path, true)
+        if not libarchive_ok then
+            fail_install(_("The downloaded archive is corrupt or extraction failed.\n\nPlease try again.") ..
+                         (libarchive_err and "\n\nDetails: " .. tostring(libarchive_err) or ""))
+            return
+        end
+    end
+
+    -- Ensure all writes are flushed before scanning (belt and suspenders for FUSE)
+    os.execute("sync")
 
     local fp = io.popen(
         "find '" .. U.shellEscape(tmp_extract_path) .. "' -name syncthing -type f -maxdepth 3 2>/dev/null")
@@ -139,14 +160,12 @@ local function _finishInstallation(self, version, post_install_callback, lease)
     if fp then fp:close() end
 
     if not binary_path or binary_path == "" then
-        os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
-        os.execute("rm -f '"  .. U.shellEscape(tmp_tar_path)     .. "'")
-        UIManager:show(InfoMessage:new{
-            icon = "notice-warning",
-            text = _("Syncthing binary not found inside the archive.\n\nThis is unexpected — please report this to the plugin author."),
-        })
-        lease:release()
-        if post_install_callback then post_install_callback() end
+        fail_install(_("Syncthing binary not found inside the archive.\n\nThis is unexpected — please report this to the plugin author."))
+        return
+    end
+
+    if not U.isELF(binary_path) then
+        fail_install(_("The downloaded archive did not contain a valid Linux Syncthing binary.\n\nPlease try again."))
         return
     end
 
@@ -165,23 +184,44 @@ local function _finishInstallation(self, version, post_install_callback, lease)
             end
         end
 
+        local dest = U.plugin_path .. "syncthing"
+        local tmp_dest = dest .. ".new"
+        os.execute("rm -f '" .. U.shellEscape(tmp_dest) .. "'")
         local mv_ok = U.execOk(os.execute(string.format(
-            "mv '%s' '%s'", U.shellEscape(binary_path), U.shellEscape(U.plugin_path .. "syncthing"))))
-
-        os.execute("rm -rf '" .. U.shellEscape(tmp_extract_path) .. "'")
-        os.execute("rm -f '"  .. U.shellEscape(tmp_tar_path)     .. "'")
+            "mv -f '%s' '%s'", U.shellEscape(binary_path), U.shellEscape(tmp_dest))))
 
         if not mv_ok then
+            fail_install(_("Could not install the binary into the plugin folder.\n\nThe folder may be on a read-only filesystem."))
+            return
+        end
+
+        local chmod_ok = U.execOk(os.execute(
+            "chmod +x '" .. U.shellEscape(tmp_dest) .. "'"))
+        if not chmod_ok then
+            fail_install(_("The downloaded binary could not be made executable.\n\nThe plugin folder may be on a filesystem mounted without execute permission."))
+            return
+        end
+
+        if not U.isELF(tmp_dest) then
+            fail_install(_("The installed file is not a valid Linux executable.\n\nPlease try the download again."))
+            return
+        end
+
+        local replace_ok = U.execOk(os.execute(string.format(
+            "mv -f '%s' '%s'", U.shellEscape(tmp_dest), U.shellEscape(dest))))
+
+        cleanup()
+
+        if not replace_ok then
             UIManager:show(InfoMessage:new{
                 icon = "notice-warning",
-                text = _("Could not install the binary into the plugin folder.\n\nThe folder may be on a read-only filesystem."),
+                text = _("Could not replace the old Syncthing binary.\n\nThe plugin folder may be on a read-only filesystem."),
             })
             lease:release()
             if post_install_callback then post_install_callback() end
             return
         end
 
-        os.execute("chmod +x '" .. U.shellEscape(U.plugin_path .. "syncthing") .. "'")
         self:_invalidateBinaryCache()
         self:_invalidateVersionCache()
         self:_cacheInvalidate()
@@ -190,8 +230,6 @@ local function _finishInstallation(self, version, post_install_callback, lease)
             text = should_restart
                 and T(_("Syncthing updated to v%1 and restarting…"), version)
                 or  T(_("Syncthing v%1 installed!\n\nYou can now start syncing."), version),
-            -- Show the password suggestion right after the user dismisses
-            -- the success message, so they can secure the GUI immediately.
             dismiss_callback = function()
                 if self._suggestPassword and not self.gui_password then
                     self:_suggestPassword()
@@ -228,6 +266,11 @@ local function performUpdate(self, url, version, expected_size, post_install_cal
     })
     UIManager:scheduleIn(0.1, function()
         os.execute("rm -f '" .. U.shellEscape(tmp_tar_path) .. "'")
+        local dest = U.plugin_path .. "syncthing"
+        if util.pathExists(dest) and not U.isELF(dest) then
+            os.execute("rm -f '" .. U.shellEscape(dest) .. "'")
+            self:_invalidateBinaryCache()
+        end
 
         local dl_ok, dl_err = _downloadFile(url, tmp_tar_path)
         UIManager:close(dl_msg)
@@ -243,27 +286,46 @@ local function performUpdate(self, url, version, expected_size, post_install_cal
             return
         end
 
-        -- Size check
+        local actual = U.fileSize(tmp_tar_path) or 0
+
+        if actual < MIN_ARCHIVE_SIZE then
+            os.execute("rm -f '" .. U.shellEscape(tmp_tar_path) .. "'")
+            UIManager:show(InfoMessage:new{
+                icon = "notice-warning",
+                text = T(_(
+                    "Downloaded file is too small to be a Syncthing archive.\n\n" ..
+                    "Actual: %1\n\nPlease try again."),
+                    util.getFriendlySize(actual)),
+            })
+            lease:release()
+            return
+        end
+
         if expected_size and expected_size > 0 then
-            local sf = io.popen(string.format("stat -c %%s '%s' 2>/dev/null", U.shellEscape(tmp_tar_path)))
-            if sf then
-                local actual = tonumber(sf:read("*l")) or 0
-                sf:close()
-                local ratio = actual / expected_size
-                if ratio < 0.75 or ratio > 1.25 then
-                    os.execute("rm -f '" .. U.shellEscape(tmp_tar_path) .. "'")
-                    UIManager:show(InfoMessage:new{
-                        icon = "notice-warning",
-                        text = T(_(
-                            "Downloaded file size is unexpected.\n\n" ..
-                            "Expected: ~%1\nActual: %2\n\n" ..
-                            "The download may be corrupt. Please try again."),
-                            util.getFriendlySize(expected_size), util.getFriendlySize(actual)),
-                    })
-                    lease:release()
-                    return
-                end
+            local ratio = actual / expected_size
+            if ratio < 0.75 or ratio > 1.25 then
+                os.execute("rm -f '" .. U.shellEscape(tmp_tar_path) .. "'")
+                UIManager:show(InfoMessage:new{
+                    icon = "notice-warning",
+                    text = T(_(
+                        "Downloaded file size is unexpected.\n\n" ..
+                        "Expected: ~%1\nActual: %2\n\n" ..
+                        "The download may be corrupt. Please try again."),
+                        util.getFriendlySize(expected_size), util.getFriendlySize(actual)),
+                })
+                lease:release()
+                return
             end
+        end
+
+        if not U.isGzip(tmp_tar_path) then
+            os.execute("rm -f '" .. U.shellEscape(tmp_tar_path) .. "'")
+            UIManager:show(InfoMessage:new{
+                icon = "notice-warning",
+                text = _("Downloaded file is not the expected Linux tar.gz archive.\n\nPlease try again."),
+            })
+            lease:release()
+            return
         end
 
         _finishInstallation(self, version, post_install_callback, lease)
@@ -307,9 +369,12 @@ local function _doFetchRelease(self, post_install_callback)
         return
     end
 
-    local latest_ver     = release.tag_name:match("v?(%d+%.%d+%.%d+)") or release.tag_name
-    local current_ver    = getCurrentVersion(self)
-    local is_new_install = not util.pathExists(U.plugin_path .. "syncthing")
+    local latest_ver  = release.tag_name:match("v?(%d+%.%d+%.%d+)") or release.tag_name
+    local current_ver = getCurrentVersion(self)
+
+    -- Treat a non-ELF file at the binary path (for example a tiny metadata
+    -- file named "syncthing") as "not installed".
+    local is_new_install = not U.isELF(U.plugin_path .. "syncthing")
 
     if not is_new_install and current_ver == latest_ver then
         UIManager:show(InfoMessage:new{
@@ -319,12 +384,12 @@ local function _doFetchRelease(self, post_install_callback)
     end
 
     local arch, arch_fallback, raw_machine = detectArch()
-    local prefix = "linux-" .. arch .. "-"
+    local expected_name = string.format("syncthing-linux-%s-v%s.tar.gz", arch, latest_ver)
     local dl_url, dl_size
 
     for _, asset in ipairs(release.assets or {}) do
         local n = asset.name or ""
-        if n:find(prefix, 1, true) and n:sub(-7) == ".tar.gz" then
+        if n == expected_name then
             dl_url  = asset.browser_download_url
             dl_size = asset.size
             break

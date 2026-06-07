@@ -1,5 +1,26 @@
 # Changelog
 
+## [v1.1.3] — 2026-06-07
+
+### Added
+- Richer **Copy diagnostic info** — binary ELF check, process RSS/threads/CPU,
+  filesystem type & free space, network loopback & Kindle firewall ports
+  (22000 TCP, 21027 UDP), folder/device counts.
+- Kindle firewall now opens TCP 22000 (sync) and UDP 21027 (discovery)
+  automatically, fixing pairing issues.
+
+### Changed
+- Binary download validates ELF & gzip magic and enforces a minimum file size
+  before extraction.
+- Binary installation is atomic (`.new` file replaced only after ELF check).
+
+### Fixed
+- Text file named `syncthing` (Kobo app‑stream metadata) no longer accepted as
+  a valid binary.
+- Curl is tried before wget for more reliable GitHub downloads.
+- Architecture detection now uses a single shared helper
+  (`st_utils.detectArch`).
+
 ## [v1.1.2] — 2026-06-06
 
 ### Added

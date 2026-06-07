@@ -118,6 +118,33 @@ local function execOk(ret)
     return ret == 0 or ret == true
 end
 
+local ELF_MAGIC = string.char(0x7f) .. "ELF"
+local GZIP_MAGIC = string.char(0x1f, 0x8b)
+
+local function fileHasPrefix(path, prefix)
+    local f = io.open(path, "rb")
+    if not f then return false end
+    local head = f:read(#prefix)
+    f:close()
+    return head == prefix
+end
+
+local function isELF(path)
+    return fileHasPrefix(path, ELF_MAGIC)
+end
+
+local function isGzip(path)
+    return fileHasPrefix(path, GZIP_MAGIC)
+end
+
+local function fileSize(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local size = f:seek("end")
+    f:close()
+    return size
+end
+
 local _loopback_checked = nil
 local function loopbackIsUp()
     if _loopback_checked ~= nil then return _loopback_checked end
@@ -147,6 +174,21 @@ local function kindleClosePort(port)
     local max_attempts = 10
     while max_attempts > 0 and execOk(os.execute(string.format(
         "iptables -D INPUT -p tcp --dport %s -j ACCEPT 2>/dev/null", port))) do
+        max_attempts = max_attempts - 1
+    end
+end
+
+local function kindleOpenPortUDP(port)
+    local rule = string.format("INPUT -p udp --dport %s -j ACCEPT", port)
+    if not execOk(os.execute("iptables -C " .. rule .. " 2>/dev/null")) then
+        os.execute("iptables -A " .. rule .. " 2>/dev/null")
+    end
+end
+
+local function kindleClosePortUDP(port)
+    local max_attempts = 10
+    while max_attempts > 0 and execOk(os.execute(string.format(
+        "iptables -D INPUT -p udp --dport %s -j ACCEPT 2>/dev/null", port))) do
         max_attempts = max_attempts - 1
     end
 end
@@ -633,10 +675,15 @@ return {
     isValidDeviceID           = isValidDeviceID,
     copyToClipboard           = copyToClipboard,
     execOk                    = execOk,
+    isELF                     = isELF,
+    isGzip                    = isGzip,
+    fileSize                  = fileSize,
     loopbackIsUp              = loopbackIsUp,
     invalidateLoopbackCache   = invalidateLoopbackCache,
     kindleOpenPort            = kindleOpenPort,
     kindleClosePort           = kindleClosePort,
+    kindleOpenPortUDP         = kindleOpenPortUDP,
+    kindleClosePortUDP        = kindleClosePortUDP,
     curlAvailable             = curlAvailable,
     invalidateCurlCache       = invalidateCurlCache,
     cacertExists              = cacertExists,

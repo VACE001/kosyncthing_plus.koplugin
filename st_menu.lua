@@ -1454,136 +1454,248 @@ local function getMaintenanceMenu(self, touchmenu_instance)
             help_text      = _("Collect plugin state, version info, recent errors and log warnings into a QR code (scan with your phone) and copy to clipboard.\n\nPaste into a bug report or support request."),
             keep_menu_open = true,
             hold_callback  = D.helpHold(_("Useful when reporting bugs. Shows a QR code you can scan with your phone to get the full diagnostic snapshot.")),
-            callback       = self.safe("Diagnostic snapshot", function()
-                -- Read OUR OWN _meta by absolute path, NOT require("_meta"):
-                -- the "_meta" module key is shared across all KOReader plugins,
-                -- so require() returns whichever plugin's metadata was cached
-                -- first (often one without a version field → "unknown").
-                -- Loading our own file is the single source of truth.
-                local meta = {}
-                do
-                    local ok, m = pcall(dofile, U.plugin_path .. "_meta.lua")
-                    if ok and type(m) == "table" then meta = m end
+callback = self.safe("Diagnostic snapshot", function()
+    local lines = {}
+    local function collect(t) for _, s in ipairs(t) do table.insert(lines, s or "") end end
+
+    -- meta
+    local meta = {}
+    do
+        local ok, m = pcall(dofile, U.plugin_path .. "_meta.lua")
+        if ok and type(m) == "table" then meta = m end
+    end
+    local pid = self:getPid()
+
+    -- Header
+    collect({
+        "=== KOSyncthing+ – Diagnostic Snapshot ===",
+        os.date("%Y-%m-%d %H:%M:%S"),
+        "",
+        "Plugin version:    " .. (meta.version or "unknown"),
+        "Syncthing version: " .. (self:getCurrentVersion() or "not installed"),
+        "Running:           " .. (self:isRunning() and "yes" or "no"),
+        "PID:               " .. (pid and tostring(pid) or "none"),
+        "Port:              " .. tostring(self.syncthing_port or "?"),
+        "Legacy mode:       " .. (U.isLegacy()
+            and (G_reader_settings:readSetting("syncthing_legacy_version") or "unknown")
+            or  "off"),
+        "Device ID:         " .. (self:getDeviceId() and "available" or "not cached"),
+        "",
+    })
+
+    -- Binary file
+    local bin_path = U.getBinaryPath()
+    local binary_info = { "=== Binary file ===" }
+    if not util.pathExists(bin_path) then
+        binary_info[#binary_info + 1] = "Not found at: " .. bin_path
+    else
+        if U.isELF(bin_path) then
+            binary_info[#binary_info + 1] = "Arch:       " .. (self:getBinaryArch() or "unknown")
+        else
+            binary_info[#binary_info + 1] = "Status:     NOT an ELF binary (text or corrupted)"
+            local f = io.open(bin_path, "r")
+            if f then
+                local preview = f:read(80)
+                f:close()
+                if preview then
+                    binary_info[#binary_info + 1] = "Preview:    " .. preview:gsub("\n", " "):gsub("%s+", " "):sub(1, 70)
                 end
-                local lines      = {}
-                local function ln(s) table.insert(lines, s or "") end
+            end
+        end
+        local _lfs_ok, lfs = pcall(require, "libs/libkoreader-lfs")
+        if not _lfs_ok then pcall(require, "lfs") end
+        if lfs then
+            local attr = lfs.attributes(bin_path)
+            if attr and attr.size then
+                binary_info[#binary_info + 1] = "Size:       " .. tostring(attr.size) .. " bytes"
+            end
+        end
+    end
+    binary_info[#binary_info + 1] = ""
+    collect(binary_info)
 
-                ln("=== KOSyncthing+ – Diagnostic Snapshot ===")
-                ln(os.date("%Y-%m-%d %H:%M:%S"))
-                ln("")
-
-                -- Versions and state
-                ln("Plugin version:    " .. (meta.version or "unknown"))
-                local st_ver = self:getCurrentVersion()
-                ln("Syncthing version: " .. (st_ver or "not installed"))
-                ln("Running:           " .. (self:isRunning() and "yes" or "no"))
-                local pid = self:getPid()
-                ln("PID:               " .. (pid and tostring(pid) or "none"))
-                ln("Port:              " .. tostring(self.syncthing_port or "?"))
-                if U.isLegacy() then
-                    local lv = G_reader_settings:readSetting("syncthing_legacy_version") or "unknown"
-                    ln("Legacy mode:       " .. lv)
+    -- Process (only when running)
+    if pid then
+        local proc_info = { "=== Process ===" }
+        local f = io.open("/proc/" .. pid .. "/status", "r")
+        if f then
+            for line in f:lines() do
+                local rss = line:match("^VmRSS:%s*(.*)")
+                if rss then
+                    proc_info[#proc_info + 1] = "RSS:        " .. rss
                 else
-                    ln("Legacy mode:       off")
-                end
-                local dev_id = self:_cacheGet("device_id")
-                ln("Device ID:         " .. (dev_id or "unknown (not cached)"))
-                ln("")
-
-                -- AD-19: database location and FUSE-relocation status.  The
-                -- hard_remove bug does not crash the daemon and is not caught
-                -- by the start-up poll, so surfacing the DB location plus any
-                -- "disk I/O error" log lines is the only way a silently failing
-                -- sync becomes attributable here.
-                ln("=== Database ===")
-                local data_dir, dreason = U.getDataDir()
-                local cfg_dir = U.getConfigDir()
-                ln("Location:          " .. tostring(data_dir))
-                ln("Resolution:        " .. tostring(dreason))
-                if data_dir ~= cfg_dir then
-                    ln("Relocated off:     " .. cfg_dir .. "  (FUSE hard_remove)")
-                    local free = U.getFreeSpace(data_dir)
-                    if free then ln("Free (data fs):    " .. U.formatBytes(free)) end
-                end
-                if util.pathExists(log_path) then
-                    local io_errs = 0
-                    local lf2 = io.open(log_path, "r")
-                    if lf2 then
-                        for line in lf2:lines() do
-                            if line:find("disk I/O error", 1, true) then
-                                io_errs = io_errs + 1
-                            end
-                        end
-                        lf2:close()
-                    end
-                    ln("Disk I/O errors:   " .. tostring(io_errs)
-                        .. (io_errs > 0 and "  <- DB on a failing filesystem" or ""))
-                end
-                ln("")
-
-                -- Last 5 API errors
-                ln("=== Recent API Errors (last 5) ===")
-                local errors = self:getApiErrors()
-                if not errors or #errors == 0 then
-                    ln("No API errors recorded.")
-                else
-                    local start = math.max(1, #errors - 4)
-                    for i = start, #errors do
-                        local e = errors[i]
-                        ln(string.format("[%d] %s %s → %s",
-                            i,
-                            e.endpoint or "?",
-                            e.method   or "",
-                            e.error    or e.status or "?"))
+                    local thr = line:match("^Threads:%s*(.*)")
+                    if thr then
+                        proc_info[#proc_info + 1] = "Threads:    " .. thr
                     end
                 end
-                ln("")
-
-                -- Last 20 WARN/ERROR log lines
-                ln("=== Recent Log (last 20 WARN/ERROR lines) ===")
-                if not util.pathExists(log_path) then
-                    ln("No log file found.")
-                else
-                    local log_lines = {}
-                    local lf = io.open(log_path, "r")
-                    if lf then
-                        for line in lf:lines() do
-                            if line:find("%[WARNING%]") or line:find("%[ERROR%]") then
-                                table.insert(log_lines, line)
-                                if #log_lines > 20 then table.remove(log_lines, 1) end
-                            end
-                        end
-                        lf:close()
-                    end
-                    if #log_lines == 0 then
-                        ln("No warnings or errors in log.")
-                    else
-                        for _, l in ipairs(log_lines) do ln(l) end
-                    end
+            end
+            f:close()
+        end
+        local sf = io.open("/proc/" .. pid .. "/stat", "r")
+        if sf then
+            local stat = sf:read("*a")
+            sf:close()
+            if stat then
+                local after_paren = stat:match("%) (.*)")
+                if after_paren then
+                    local nums = {}
+                    for n in after_paren:gmatch("%S+") do table.insert(nums, n) end
+                    local utime = tonumber(nums[12]) or 0
+                    local stime = tonumber(nums[13]) or 0
+                    proc_info[#proc_info + 1] = "CPU time:   " .. string.format("%.1f s", (utime + stime) / 100)
                 end
+            end
+        end
+        proc_info[#proc_info + 1] = ""
+        collect(proc_info)
+    end
 
-                local snapshot = table.concat(lines, "\n")
+    -- Filesystem
+    local fs_info = { "=== Filesystem ===" }
+    local plugin_fs = util.getFilesystemType(U.plugin_path) or "unknown"
+    local config_dir = U.getConfigDir()
+    local config_fs = (config_dir ~= U.plugin_path) and util.getFilesystemType(config_dir) or plugin_fs
+    local fs_str = plugin_fs
+    if config_fs ~= plugin_fs then
+        fs_str = "plugin=" .. plugin_fs .. " config=" .. config_fs
+    end
+    fs_info[#fs_info + 1] = "Type:       " .. fs_str
+    local free_plugin = U.getFreeSpace(U.plugin_path)
+    if free_plugin then
+        fs_info[#fs_info + 1] = "Free space: " .. U.formatBytes(free_plugin)
+    end
+    fs_info[#fs_info + 1] = ""
+    collect(fs_info)
 
-                -- Show QR code first (primary path – scan with phone)
-                UIManager:show(QRMessage:new{
-                    text   = snapshot,
-                    width  = math.floor(Device.screen:getWidth() * 0.85),
-                    height = math.floor(Device.screen:getHeight() * 0.85),
-                    dismiss_callback = function()
-                        -- After QR is dismissed, show text viewer for review
-                        UIManager:show(TextViewer:new{
-                            title  = _("Diagnostic info (also copied to clipboard)"),
-                            text   = snapshot,
-                            width  = math.floor(Device.screen:getWidth()  * 0.92),
-                            height = math.floor(Device.screen:getHeight() * 0.85),
-                        })
-                    end,
-                })
+    -- Network
+    local net_info = {
+        "=== Network ===",
+        "Loopback:    " .. (U.loopbackIsUp() and "up" or "down"),
+    }
+    local ip = U.getDeviceIP()
+    if ip and ip ~= "127.0.0.1" then
+        net_info[#net_info + 1] = "Device IP:   " .. ip
+    end
+    if Device:isKindle() then
+        local sync_open = U.execOk(os.execute("iptables -C INPUT -p tcp --dport 22000 -j ACCEPT 2>/dev/null"))
+        local disc_open = U.execOk(os.execute("iptables -C INPUT -p udp --dport 21027 -j ACCEPT 2>/dev/null"))
+        net_info[#net_info + 1] = "Sync port:   " .. (sync_open and "open (TCP 22000)" or "blocked (TCP 22000)")
+        net_info[#net_info + 1] = "Discovery:   " .. (disc_open and "open (UDP 21027)" or "blocked (UDP 21027)")
+    end
+    net_info[#net_info + 1] = ""
+    collect(net_info)
 
-                -- Also copy to clipboard as a backup
-                U.copyToClipboard(snapshot)
-            end),
-        },
+    -- Configuration
+    local cfg_info = {
+        "=== Configuration ===",
+        "Folders:     " .. #(self:getFolders() or {}),
+        "Devices:     " .. #(self:getDevices() or {}),
+    }
+    local config_xml = U.getConfigDir() .. "/config.xml"
+    if not util.pathExists(config_xml) then
+        cfg_info[#cfg_info + 1] = "config.xml:  not found"
+    else
+        local f = io.open(config_xml, "r")
+        if f then
+            local content = f:read("*a")
+            f:close()
+            if content and not (content:find("<user>") and content:find("<password>")) then
+                cfg_info[#cfg_info + 1] = "GUI auth:    NOT configured (no password set)"
+            end
+        end
+    end
+    cfg_info[#cfg_info + 1] = ""
+    collect(cfg_info)
+
+    -- Database
+    local db_info = { "=== Database ===" }
+    local data_dir, dreason = U.getDataDir()
+    local cfg_dir = U.getConfigDir()
+    db_info[#db_info + 1] = "Location:          " .. tostring(data_dir)
+    db_info[#db_info + 1] = "Resolution:        " .. tostring(dreason)
+    if data_dir ~= cfg_dir then
+        db_info[#db_info + 1] = "Relocated off:     " .. cfg_dir .. "  (FUSE hard_remove)"
+        local free = U.getFreeSpace(data_dir)
+        if free then db_info[#db_info + 1] = "Free (data fs):    " .. U.formatBytes(free) end
+    end
+    if util.pathExists(log_path) then
+        local io_errs = 0
+        local lf = io.open(log_path, "r")
+        if lf then
+            for line in lf:lines() do
+                if line:find("disk I/O error", 1, true) then io_errs = io_errs + 1 end
+            end
+            lf:close()
+        end
+        db_info[#db_info + 1] = "Disk I/O errors:   " .. tostring(io_errs)
+            .. (io_errs > 0 and "  <- DB on a failing filesystem" or "")
+    end
+    db_info[#db_info + 1] = ""
+    collect(db_info)
+
+    -- API errors
+    local api_info = { "=== Recent API Errors (last 5) ===" }
+    local errors = self:getApiErrors()
+    if not errors or #errors == 0 then
+        api_info[#api_info + 1] = "No API errors recorded."
+    else
+        local start = math.max(1, #errors - 4)
+        for i = start, #errors do
+            local e = errors[i]
+            api_info[#api_info + 1] = string.format("[%d] %s %s → %s",
+                i, e.endpoint or "?", e.method or "", e.error or e.status or "?")
+        end
+    end
+    api_info[#api_info + 1] = ""
+    collect(api_info)
+
+    -- Recent log
+    local log_info = { "=== Recent Log (last 20 WARN/ERROR lines) ===" }
+    if not util.pathExists(log_path) then
+        log_info[#log_info + 1] = "No log file found."
+    else
+        local log_lines = {}
+        local lf = io.open(log_path, "r")
+        if lf then
+            for line in lf:lines() do
+                if line:find("%[WARNING%]") or line:find("%[ERROR%]") then
+                    table.insert(log_lines, line)
+                    if #log_lines > 20 then table.remove(log_lines, 1) end
+                end
+            end
+            lf:close()
+        end
+        if #log_lines == 0 then
+            log_info[#log_info + 1] = "No warnings or errors in log."
+        else
+            for _, l in ipairs(log_lines) do
+                log_info[#log_info + 1] = l
+            end
+        end
+    end
+    log_info[#log_info + 1] = ""
+    collect(log_info)
+
+    local snapshot = table.concat(lines, "\n")
+
+    -- Show QR then viewer + clipboard
+    UIManager:show(QRMessage:new{
+        text   = snapshot,
+        width  = math.floor(Device.screen:getWidth()  * 0.85),
+        height = math.floor(Device.screen:getHeight() * 0.85),
+        dismiss_callback = function()
+            UIManager:show(TextViewer:new{
+                title  = _("Diagnostic info (also copied to clipboard)"),
+                text   = snapshot,
+                width  = math.floor(Device.screen:getWidth()  * 0.92),
+                height = math.floor(Device.screen:getHeight() * 0.85),
+            })
+        end,
+    })
+    U.copyToClipboard(snapshot)
+end),
+		},
 
         -- Debug: API error viewer (now shows up to 8 recent errors)
         {

@@ -19,6 +19,7 @@ local path     = DataStorage:getFullDataDir()
 local pid_path = "/tmp/syncthing_koreader.pid"
 
 local _binary_exists_cache = nil
+local _binary_arch_cache   = nil
 
 ---------------------------------------------------------------------------
 -- Kindle port guard
@@ -38,12 +39,20 @@ local _binary_exists_cache = nil
 ---------------------------------------------------------------------------
 
 local function kindlePortGuard(port)
-    if Device:isKindle() then U.kindleOpenPort(port) end
+    if Device:isKindle() then
+        U.kindleOpenPort(port)
+        U.kindleOpenPort("22000")      -- sync protocol (TCP) — required for pairing and data transfer
+        U.kindleOpenPortUDP("21027")   -- local discovery (UDP) — speeds up initial peer detection
+    end
     local released = false
     return function()
         if released then return end
         released = true
-        if Device:isKindle() then U.kindleClosePort(port) end
+        if Device:isKindle() then
+            U.kindleClosePort(port)
+            U.kindleClosePort("22000")
+            U.kindleClosePortUDP("21027")
+        end
     end
 end
 
@@ -56,15 +65,43 @@ end
 
 local function binaryExists(self)
     if _binary_exists_cache ~= nil then return _binary_exists_cache end
-    _binary_exists_cache = util.pathExists(U.getBinaryPath())
-    return _binary_exists_cache
+
+    local p = U.getBinaryPath()
+
+    -- Fast path: the file must exist at the expected location.
+    if not util.pathExists(p) then
+        _binary_exists_cache = false
+        return false
+    end
+
+    -- A valid Syncthing binary is an ELF executable.
+    -- Read the magic bytes to confirm it is not a text file (e.g. the
+    -- Kobo appstream metadata file named "syncthing" that ships in the
+    -- plugin directory on some Kobo firmware versions).
+    --
+    -- We open in binary mode because the ELF magic includes non-printable
+    -- bytes and we only need the first four.
+    if not U.isELF(p) then
+        -- The file is either too short, not an ELF, or corrupted.
+        -- We cache the negative result because the filesystem is unlikely
+        -- to change within a session.
+        _binary_exists_cache = false
+        return false
+    end
+
+    -- It's a genuine ELF binary – cache and return true.
+    _binary_exists_cache = true
+    return true
 end
 
 local function invalidateBinaryCache(self)
     _binary_exists_cache = nil
+    _binary_arch_cache   = nil
 end
 
 local function getBinaryArch(self)
+    if _binary_arch_cache ~= nil then return _binary_arch_cache end
+
     local binary = U.getBinaryPath()
     local arch = nil
 
@@ -114,22 +151,27 @@ local function getBinaryArch(self)
 
     if not arch or arch == "" then
         logger.warn("[Syncthing] Could not detect binary architecture: " .. binary)
-        return "unknown"
+        arch = "unknown"
     end
 
     if arch == "ARM" or arch == "ARM64" or arch == "AArch64" then
-        if arch == "AArch64" then return "ARM64" end
-        return arch
+        if arch == "AArch64" then arch = "ARM64" end
     elseif arch == "X86-64" or arch == "X86_64" then
-        return "x86_64"
+        arch = "x86_64"
     elseif arch == "80386" then
-        return "i386"
-    else
-        return "unknown"
+        arch = "i386"
     end
+
+    _binary_arch_cache = arch
+    return arch
 end
 
 local function binaryMatchesDevice(self)
+    -- Re-verify with a fresh filesystem read before doing anything.
+    if not U.isELF(U.getBinaryPath()) then
+        invalidateBinaryCache(self)  -- stale; next binaryExists() re-reads
+        return false                 -- start() shows first-run dialog instead
+    end
     local p = io.popen("uname -m 2>/dev/null")
     if not p then return true end
     local line = p:read("*l")

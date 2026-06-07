@@ -40,8 +40,8 @@ busted spec                      # all files (skips st_process_spec)
 | `st_datadir_spec.lua` | Data-directory selection, legacy-path migration, FAT/FUSE detection | 11 |
 | `st_filesystem_spec.lua` | Safe-delete guard, dangerous-path rejection, conflict-file scanning, archive extraction | 36 |
 | `st_api_spec.lua` | `SafeClient` HTTP layer: GET/PUT/PATCH routing, error capture, cache invalidation | 33 |
-| `st_legacy_spec.lua` | Legacy-mode gate (`needsPatch`), `downloadBinary` URL/arch construction, `patchSyncthingObject` read-modify-write shim | 69 |
-| `st_process_spec.lua` | Binary lifecycle: `start`, `stop`, `kindlePortGuard`, `isRunning`, `safeHomeDir`, `applyNetworkSettings`, `stopPlugin` | 54 |
+| `st_legacy_spec.lua` | Legacy-mode gate (`needsPatch`), `downloadBinary` URL/arch construction, archive validation (`fileSize`, `isGzip`, `isELF`), atomic staging install, `patchSyncthingObject` read-modify-write shim | 69 |
+| `st_process_spec.lua` | Binary lifecycle: `start`, `stop`, `kindlePortGuard`, Kindle UDP port guards, `binaryExists` (ELF check), `isRunning`, `safeHomeDir`, `applyNetworkSettings`, `stopPlugin` | 54 |
 | **Total** | | **427** |
 
 ### Note on `st_process_spec` and Busted
@@ -74,4 +74,9 @@ first `before_each` fires. The plain runner in `run_tests.lua` does not use
   because `detectArch` uses `pcall(require, "jit")` which reads the module
   cache, not the global — this matters when running under `texlua`/LuaTeX
   where the real `jit` module is already cached at startup.
+- `st_legacy_spec` and `st_process_spec` stub new `st_utils` helpers
+  (`fileSize`, `isGzip`, `isELF`, `kindleOpenPortUDP`, `kindleClosePortUDP`)
+  as controllable fakes. Defaults represent the happy path so existing tests
+  are unaffected; tests that exercise a specific failure path override via
+  `FAKE.*` fields (e.g. `FAKE.is_gzip = false`).
 - No network access, no filesystem writes, no real processes are started.

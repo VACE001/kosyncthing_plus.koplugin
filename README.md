@@ -82,7 +82,7 @@ Quick Sync is the one-tap sync flow designed for e-readers that are not left run
    
 8. Stops Syncthing and releases the wakelock.
 
-9. Times out after 10 minutes with a warning if folders are still not idle.
+9. Times out after 30 minutes with a warning if folders are still not idle.
 
 A **wakelock** (`preventSuspend` / `allowSuspend`) is held for the entire Quick Sync so the device does not sleep mid-transfer.
 
@@ -295,12 +295,13 @@ version.  Factory reset and plugin removal clean up both directories.
 - **In-place update** — if Syncthing is running when a new binary is installed, the plugin stops it, installs the binary, and restarts silently.
 - **Free space check** — requires at least 20 MB free before starting a download.
 - **Download transport** — uses `curl` (with `cacert.pem` for certificate verification) when available, falls back to LuaSec (HTTPS), then LuaSocket (HTTP).
+- **Atomic install** — binary is installed via a temporary `.new` file that replaces the current one only after ELF and size checks pass.
 
 ### Starting and stopping
 
 - **Architecture-aware start guard** — refuses to start a binary that does not match the device CPU.
 - **Loopback interface management (Kobo)** — on Kobo devices, brings up the `lo` interface with `ifconfig lo up` / `ip link set lo up` if it is down, since Syncthing communicates with its own REST API over `127.0.0.1`.
-- **Kindle firewall** — opens the GUI port in `iptables` before starting and removes the rule on stop.
+- **Kindle firewall** — opens the Web GUI port, sync port (22000/TCP) and local discovery port (21027/UDP) in `iptables` before starting, removes all three on stop. Fixes the pairing "connection refused" problem on Kindle.
 - **Re-entrancy guard** — a `_starting` / `_stopping` flag prevents two concurrent start or stop operations from racing on rapid taps.
 - **Clean shutdown** — sends `SIGTERM`, polls for up to 4 seconds, then sends `SIGKILL`. On device suspend, uses a synchronous 1-second sleep so the kernel does not pause Syncthing's I/O mid-flush.
 - **Silent start** — auto-start and periodic sync bypass the "Syncthing started" toast; only user-initiated starts show a notification.
@@ -313,7 +314,7 @@ version.  Factory reset and plugin removal clean up both directories.
 - **View errors only** — filters the log to show only `[WARNING]` and `[ERROR]` lines, making it easier to spot problems without scrolling through the full output.
 - **View API errors (N)** — shows up to 8 recent REST API errors (the number is shown in the menu label).
 - **Clear all API errors** — removes all stored API errors.
-- **Copy diagnostic info** — collects plugin version, Syncthing version, running state, port, last 5 API errors, and last 20 WARN/ERROR log lines. Displays them as a QR code (scan with your phone) and copies the same text to the clipboard. Paste into a bug report or support request.
+- **Copy diagnostic info** — collects plugin version, Syncthing version, running state, port, binary file status (ELF check, architecture, size), process details (RSS, threads, CPU time), filesystem type & free space, network state (loopback, IP, Kindle firewall ports), folder/device counts, database location, last 5 API errors, and last 20 WARN/ERROR log lines. Displays the result as a QR code (scan with your phone) and copies the same text to the clipboard. Paste into a bug report or support request.
 - **Copy API key** — copies the Syncthing REST API key to the clipboard.
 - **Reset sync database** — deletes the index database directory, forcing a full re-index on the next start. Stops Syncthing first if running.
 - **Reset everything to factory defaults** — double-confirmed destructive reset: stops Syncthing, deletes `settings/syncthing/` entirely (config, TLS keys, device ID, database), wipes all `syncthing_*` keys from KOReader settings, and resets all in-memory plugin state. Synced files on disk are **not** deleted.  After stopping Syncthing, the reset verifies that the daemon has actually exited before wiping any files. If Syncthing cannot be stopped (e.g. due to a kernel I/O hang), the reset is refused with a clear message.
@@ -336,6 +337,7 @@ This plugin is tested and confirmed working on:
 | Platform | Device | Notes |
 |----------|--------|-------|
 | Kindle | **Paperwhite 12th Generation (2024)** | Standard mode |
+| Kobo | **Libra Colour (2024)** | Standard mode |
 
 (Please send pull requests to add your tested device here!)
 
@@ -1028,7 +1030,7 @@ kosyncthing_plus.koplugin/
 ├── st_sync.lua          quickSync; _startQuickSync (wakelock, disk space check,
 │                        db/scan, byte-transfer snapshot for accurate delta
 │                        reporting, _waitForIdle with adaptive polling and
-│                        10-min timeout); getFolderHealth (per-folder state
+│                        30-min timeout); getFolderHealth (per-folder state
 │                        snapshot + aggregates); findConflicts (with configurable
 │                        TTL and IgnoreRegistry); syncNow (rescan trigger);
 │                        setPauseAll; getMountPoint for accurate disk-space check
