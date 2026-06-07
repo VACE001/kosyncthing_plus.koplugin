@@ -116,6 +116,49 @@ describe("runAutoStart", function()
         -- But enableWifi was called:
         assert.are.equal(1, Mock.state.wifi_enable_calls)
     end)
+
+    it("fires callback immediately when user_paused flag is set", function()
+        Mock.state.wifi_online = true
+        G_reader_settings:saveSetting("syncthing_user_paused", true)
+        local orch = freshOrchestrator()
+        local cb_called = false
+        local plugin = makePlugin()
+        orch.runAutoStart(plugin, "network_connected", function() cb_called = true end)
+        assert.is_true(cb_called)
+        assert.are.equal(0, plugin.start_calls)
+        G_reader_settings:delSetting("syncthing_user_paused")
+    end)
+
+    it("starts normally when user_paused flag is absent", function()
+        Mock.state.wifi_online = true
+        G_reader_settings:delSetting("syncthing_user_paused")
+        local orch = freshOrchestrator()
+        local plugin = makePlugin()
+        orch.runAutoStart(plugin, "network_connected", nil)
+        assert.are.equal(1, plugin.start_calls)
+    end)
+
+    it("starts on LAN-only network (isConnected=true, isOnline=false)", function()
+        Mock.state.wifi_online    = false
+        Mock.state.wifi_connected = true   -- has IP, no internet route
+        local orch = freshOrchestrator()
+        local plugin = makePlugin()
+        orch.runAutoStart(plugin, "network_connected", nil)
+        assert.are.equal(1, plugin.start_calls)
+        Mock.state.wifi_connected = nil
+    end)
+
+    it("does not start when both isConnected and isOnline are false", function()
+        Mock.state.wifi_online      = false
+        Mock.state.wifi_connected   = false
+        Mock.state.wifi_auto_callback = false  -- enableWifi fires but network stays down
+        local orch = freshOrchestrator()
+        local cb_called = false
+        local plugin = makePlugin()
+        orch.runAutoStart(plugin, "reason", function() cb_called = true end)
+        assert.are.equal(0, plugin.start_calls)
+        Mock.state.wifi_connected = nil
+    end)
 end)
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -474,6 +517,42 @@ describe("runNetworkConnected", function()
         plugin.auto_start_always = false
         orch.runNetworkConnected(plugin)
         assert.are.equal(0, plugin.start_calls)
+    end)
+
+    -- ── Autostart survives automatic network disconnect/reconnect ───────────
+    it("auto_start_always: restarts after automatic network-loss stop (user_paused NOT set)", function()
+        -- Simulate the full cycle:
+        --   network drops  → runNetworkDisconnected → stop(silent=true) → user_paused must NOT be set
+        --   network returns → runNetworkConnected   → runAutoStart      → Syncthing starts again
+        Mock.state.wifi_online = true
+        local orch = freshOrchestrator()
+        local plugin = makePlugin({
+            isRunning = function(self) return self._running end,
+            stop = function(self, cb, is_suspend, silent)
+                -- Simulate what st_process.stop() does after the fix:
+                -- only set user_paused when not silent and not suspend.
+                if not is_suspend and not silent then
+                    G_reader_settings:saveSetting("syncthing_user_paused", true)
+                end
+                self._running = false
+                if cb then cb() end
+            end,
+        })
+        plugin.auto_start_always = true
+        plugin._running = true
+
+        -- Step 1: network disconnect → automatic stop
+        Mock.state.wifi_online = false
+        orch.runNetworkDisconnected(plugin)
+        assert.is_false(plugin._running)
+        assert.is_nil(Mock.state.settings["syncthing_user_paused"],
+            "automatic stop must not set user_paused")
+
+        -- Step 2: network reconnect → Autostart should fire
+        Mock.state.wifi_online = true
+        orch.runNetworkConnected(plugin)
+        assert.are.equal(1, plugin.start_calls,
+            "Autostart must restart Syncthing after automatic network stop")
     end)
 end)
 
