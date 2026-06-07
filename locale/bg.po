@@ -3413,3 +3413,19 @@ msgstr "Автоматично обединяване: %1 обединени, %2
 #: st_orchestrator.lua:530
 msgid "Auto-merged reading progress: %1 conflict(s)."
 msgstr "Автоматично обединени: %1 конфликт(а)."
+
+#: st_orchestrator.lua
+msgid "Quick Sync skipped — network unavailable."
+msgstr "Бърза синхронизация пропусната — няма мрежа."
+
+#: st_orchestrator.lua
+msgid "Periodic sync skipped — network unavailable."
+msgstr "Периодичната синхронизация е пропусната — няма мрежа."
+
+#: st_sync.lua
+msgid "Quick Sync stopped — network disconnected."
+msgstr "Бърза синхронизация спряна — мрежата е изключена."
+
+#: st_sync.lua
+msgid "Periodic sync: network disconnected."
+msgstr "Периодична синхронизация: мрежата е изключена."
