@@ -1501,7 +1501,7 @@ callback = self.safe("Diagnostic snapshot", function()
      .. "          Legacy    " .. (U.isLegacy()
          and (G_reader_settings:readSetting("syncthing_legacy_version") or "?")
          or  "off"))
-    ln("Device    " .. short_id)
+    ln("Syncthing: ID " .. short_id)
 
     -- ── Binary & Process ─────────────────────────────────────────────────────
     sec()
