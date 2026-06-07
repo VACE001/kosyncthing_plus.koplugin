@@ -1144,7 +1144,8 @@ local function getAutomationMenu(self)
 						.. "should be running but isn't, it tries to start it again.\n"
 						.. "• When Wi-Fi disconnects, Syncthing stops automatically.\n\n"
 						.. "Best for users who want continuous background sync without "
-						.. "wasting resources when offline.")
+						.. "wasting resources when offline. Manually stopping Syncthing pauses\n"
+						.. "the auto-start until you start it again.")
 
     local charging_help = _("Automation rules above only fire if the device is plugged in and charging.\n\n"
                          .. "Useful when you have a large library and don't want an unexpected Wi-Fi join to drain your battery mid-read.")
