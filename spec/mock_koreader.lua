@@ -31,6 +31,7 @@ function Mock.reset()
         standby = 0,
         wakelock = 0,
         wifi_online = true,
+        wifi_connected = nil,  -- nil = follow wifi_online; true/false = independent LAN state
         wifi_enable_calls = 0,
         wifi_disable_calls = 0,
         wifi_auto_callback = true,
@@ -181,6 +182,11 @@ function Mock.install()
         return {
             isOnline = function()
                 return Mock.state.wifi_online
+            end,
+            isConnected = function()
+                return Mock.state.wifi_connected ~= nil
+                    and Mock.state.wifi_connected
+                    or  Mock.state.wifi_online
             end,
             enableWifi = function(_, cb)
                 Mock.state.wifi_enable_calls = Mock.state.wifi_enable_calls + 1
