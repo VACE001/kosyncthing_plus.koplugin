@@ -991,6 +991,67 @@ describe("stop()", function()
         os.execute = real_os_execute
         assert.are.equal(false, Mock.state.settings["syncthing_was_running"])
     end)
+
+    -- ── user_paused flag ────────────────────────────────────────────────────
+
+    local function gracefulStop(P, plugin, pid, is_suspend, silent)
+        -- Helper: set up a live pid and run a graceful stop to completion.
+        setPid(pid)
+        execute_map["kill -0 " .. pid] = 0
+        io_open_map["/proc/" .. pid .. "/comm"] = "syncthing\n"
+        execute_map["kill " .. pid] = 0
+        local check = 0
+        local orig = os.execute
+        os.execute = function(cmd)
+            if cmd:find("kill -0 " .. pid) then
+                check = check + 1
+                return check > 1 and 1 or 0
+            end
+            if cmd:find("kill " .. pid) then return 0 end
+            return 1
+        end
+        P.stop(plugin, nil, is_suspend, silent)
+        Mock.runTimers(10)
+        os.execute = orig
+    end
+
+    it("sets user_paused on explicit manual stop (silent=false)", function()
+        local P = reloadProcess()
+        local plugin = makePlugin()
+        gracefulStop(P, plugin, 600, false, false)
+        assert.is_true(Mock.state.settings["syncthing_user_paused"])
+    end)
+
+    it("does NOT set user_paused on automatic stop (silent=true)", function()
+        local P = reloadProcess()
+        local plugin = makePlugin()
+        gracefulStop(P, plugin, 601, false, true)
+        assert.is_nil(Mock.state.settings["syncthing_user_paused"])
+    end)
+
+    it("does NOT set user_paused on suspend stop", function()
+        -- Suspend path is synchronous (SIGTERM+SIGKILL), not graceful.
+        setPid(602)
+        execute_map["kill -0 602"] = 0
+        io_open_map["/proc/602/comm"] = "syncthing\n"
+        execute_map["kill 602"]    = 0
+        execute_map["kill -9 602"] = 0
+        local P = reloadProcess()
+        local plugin = makePlugin()
+        P.stop(plugin, nil, true, false)
+        assert.is_nil(Mock.state.settings["syncthing_user_paused"])
+    end)
+
+    it("clears user_paused when start() is called", function()
+        G_reader_settings:saveSetting("syncthing_user_paused", true)
+        -- start() exits early (binary missing) but must still clear the flag.
+        local P = reloadProcess()
+        local plugin = makePlugin()
+        -- Silent start with missing binary fires callback and returns early.
+        plugin._silentStart = true
+        P.start(plugin, function() end)
+        assert.is_nil(Mock.state.settings["syncthing_user_paused"])
+    end)
 end)
 
 

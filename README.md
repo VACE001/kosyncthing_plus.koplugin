@@ -681,8 +681,9 @@ Automatically start Syncthing and keep it running whenever possible.
 • A health-check timer runs every 60 seconds: if Syncthing
 should be running but isn't, it tries to start it again.
 • When Wi-Fi disconnects, Syncthing stops automatically.
-Best for users who want continuous background sync without
-wasting resources when offline.
+• Works also on LAN-only networks without internet access.
+Manually stopping Syncthing
+pauses the auto-start until you start it again.
 
 ### Periodic Quick Sync
 

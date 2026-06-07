@@ -8,11 +8,20 @@
   (22000 TCP, 21027 UDP), folder/device counts.
 - Kindle firewall now opens TCP 22000 (sync) and UDP 21027 (discovery)
   automatically, fixing pairing issues.
+- **Autostart respects manual pause** — manually stopping Syncthing from the
+  menu now pauses Autostart until you start it again. Previously Autostart
+  would immediately restart the daemon after a manual stop.
+- **LAN-only network support** — Autostart and sync timers now use
+  `NetworkMgr:isConnected()` (has IP association) before falling back to
+  `isOnline()` (has internet route). Syncthing can sync on local networks
+  without internet access.
 
 ### Changed
 - Binary download validates ELF & gzip magic and enforces a minimum file size
   before extraction.
 - Binary installation is atomic (`.new` file replaced only after ELF check).
+- Notifications say "network unavailable / disconnected" instead of
+  "Wi‑Fi unavailable / disconnected" to match the new LAN-only behaviour.
 
 ### Fixed
 - Text file named `syncthing` (Kobo app‑stream metadata) no longer accepted as
@@ -20,6 +29,10 @@
 - Curl is tried before wget for more reliable GitHub downloads.
 - Architecture detection now uses a single shared helper
   (`st_utils.detectArch`).
+- **Autostart no longer breaks after network loss.** Automatic stops
+  (network disconnect, app close) were incorrectly setting the `user_paused`
+  flag, causing Autostart to stay disabled after reconnecting or restarting
+  the app. Only an explicit manual stop now sets the flag.
 
 ## [v1.1.2] — 2026-06-06
 

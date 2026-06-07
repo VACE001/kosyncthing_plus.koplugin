@@ -13,6 +13,12 @@ local U              = require("st_utils")
 local IgnoreRegistry = require("st_api_public").IgnoreRegistry
 local Guard          = require("st_guard")
 
+local function hasNetwork()
+    local connected = type(NetworkMgr.isConnected) == "function"
+        and NetworkMgr:isConnected()
+    return connected or NetworkMgr:isOnline()
+end
+
 local FOLDER_CACHE_TTL = U.FOLDER_CACHE_TTL
 -- In Android remote mode getFolderHealth's data comes over REST from the
 -- companion app (slower than the local loopback daemon on Kindle/Kobo), so the
@@ -497,11 +503,11 @@ _waitForIdle = function(self, start_time, on_ui_refresh, prev_state, on_finish, 
         return
     end
 
-	if not NetworkMgr:isOnline() then
+	if not hasNetwork() then
 		if not silent then
-			self:showNotification(_("Quick Sync stopped — Wi-Fi disconnected."), 5)
+			self:showNotification(_("Quick Sync stopped — network disconnected."), 5)
 		else
-			self:showNotification(_("Periodic sync: Wi-Fi disconnected."), 5)
+			self:showNotification(_("Periodic sync: network disconnected."), 5)
 		end
 		if self._active_flow_id == flow_id then
 			self._last_sync_progress = nil

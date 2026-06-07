@@ -297,6 +297,8 @@ local function start(self, callback)
 	local silent_start = self._silentStart
     self._silentStart = nil
 
+	G_reader_settings:delSetting("syncthing_user_paused")
+
     if not binaryExists(self) then
         if silent_start then
             if callback then callback() end
@@ -800,12 +802,18 @@ local function stop(self, callback, is_suspend, silent)
         return
     end
 
-    local function finish_stop()
+	local function finish_stop()
         os.remove(pid_path)
 		-- If this was a deliberate manual stop (not suspend), clear the
 		-- "was running" flag so we don't resurrect Syncthing on next start.
+		-- Only set user_paused for explicit manual stops (silent=false):
+		-- automatic stops (network disconnect, app close) pass silent=true
+		-- and must NOT set the flag, or Autostart breaks on reconnect/relaunch.
 		if not is_suspend then
 			G_reader_settings:saveSetting("syncthing_was_running", false)
+			if not silent then
+				G_reader_settings:saveSetting("syncthing_user_paused", true)
+			end
 		end
         self:_cacheInvalidate()
         releaseKindlePort(self)

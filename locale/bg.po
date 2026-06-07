@@ -489,7 +489,8 @@ msgid ""
 "• A health-check timer runs every 60 seconds: if Syncthing should be running but isn't, it tries to start it again.\n"
 "• When Wi-Fi disconnects, Syncthing stops automatically.\n"
 "\n"
-"Best for users who want continuous background sync without wasting resources when offline."
+"Best for users who want continuous background sync without wasting resources when offline.\n"
+"Manually stopping Syncthing pauses the auto-start until you start it again."
 msgstr ""
 "Автоматично стартирайте Syncthing и го поддържайте работещ, когато е възможно.\n"
 "\n"
@@ -498,7 +499,8 @@ msgstr ""
 "• Таймерът за проверка на здравето работи на всеки 60 секунди: ако Syncthing трябва да работи, но не е, той се опитва да го стартира отново.\n"
 "• Когато връзката с Wi-Fi се прекъсне, Syncthing спира автоматично.\n"
 "\n"
-"Най-доброто за потребители, които искат непрекъснато фоново синхронизиране, без да губят ресурси, когато са офлайн."
+"Най-доброто за потребители, които искат непрекъснато фоново синхронизиране, без да губят ресурси, когато са офлайн.\n"
+"Ръчното спиране на Syncthing поставя на пауза автоматичното стартиране, докато не го стартирате отново."
 
 #: st_menu.lua:2398
 msgid "Automation"
@@ -3411,3 +3413,19 @@ msgstr "Автоматично обединяване: %1 обединени, %2
 #: st_orchestrator.lua:530
 msgid "Auto-merged reading progress: %1 conflict(s)."
 msgstr "Автоматично обединени: %1 конфликт(а)."
+
+#: st_orchestrator.lua
+msgid "Quick Sync skipped — network unavailable."
+msgstr "Бърза синхронизация пропусната — няма мрежа."
+
+#: st_orchestrator.lua
+msgid "Periodic sync skipped — network unavailable."
+msgstr "Периодичната синхронизация е пропусната — няма мрежа."
+
+#: st_sync.lua
+msgid "Quick Sync stopped — network disconnected."
+msgstr "Бърза синхронизация спряна — мрежата е изключена."
+
+#: st_sync.lua
+msgid "Periodic sync: network disconnected."
+msgstr "Периодична синхронизация: мрежата е изключена."

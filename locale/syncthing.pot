@@ -388,7 +388,8 @@ msgid ""
 "• A health-check timer runs every 60 seconds: if Syncthing should be running but isn't, it tries to start it again.\n"
 "• When Wi-Fi disconnects, Syncthing stops automatically.\n"
 "\n"
-"Best for users who want continuous background sync without wasting resources when offline."
+"Best for users who want continuous background sync without wasting resources when offline.\n"
+"Manually stopping Syncthing pauses the auto-start until you start it again."
 msgstr ""
 
 #: st_menu.lua:2398
@@ -2727,4 +2728,20 @@ msgstr ""
 
 #: st_orchestrator.lua:530
 msgid "Auto-merged reading progress: %1 conflict(s)."
+msgstr ""
+
+#: st_orchestrator.lua
+msgid "Quick Sync skipped — network unavailable."
+msgstr ""
+
+#: st_orchestrator.lua
+msgid "Periodic sync skipped — network unavailable."
+msgstr ""
+
+#: st_sync.lua
+msgid "Quick Sync stopped — network disconnected."
+msgstr ""
+
+#: st_sync.lua
+msgid "Periodic sync: network disconnected."
 msgstr ""

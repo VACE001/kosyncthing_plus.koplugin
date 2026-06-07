@@ -25,6 +25,16 @@ local function safeCallback(callback, ...)
     end
 end
 
+-- Syncthing works on LAN-only networks without internet access.
+-- isConnected() (has IP/association) is the right gate; isOnline() (has
+-- internet route) is too strict and breaks LAN-only setups.
+-- We fall back to isOnline() for platforms where isConnected is unreliable.
+local function hasNetwork()
+    local connected = type(NetworkMgr.isConnected) == "function"
+        and NetworkMgr:isConnected()
+    return connected or NetworkMgr:isOnline()
+end
+
 local function startSilent(self, callback)
     self._silentStart = true
     self:start(callback)
@@ -65,17 +75,21 @@ local function runAutoStart(self, reason, callback)
         safeCallback(callback, reason)
         return
     end
+    if G_reader_settings:isTrue("syncthing_user_paused") then
+        safeCallback(callback, reason)
+        return
+    end
 
     local function do_start()
         startSilent(self, callback)
     end
 
-    if NetworkMgr:isOnline() then
+    if hasNetwork() then
         do_start()
     else
         -- Try to bring Wi-Fi up; if it fails, just leave.
         NetworkMgr:enableWifi(function()
-            if NetworkMgr:isOnline() then
+            if hasNetwork() then
                 do_start()
             else
                 safeCallback(callback, reason)
@@ -128,7 +142,7 @@ local function runQuickSync(self, on_ui_refresh, callback)
     -- stayed live in the UI loop until they fired.  Holding the closure
     -- itself makes unschedule work.
     local wifi_retry_fn = nil
-    local wifi_was_off_before = not NetworkMgr:isOnline()
+    local wifi_was_off_before = not hasNetwork()
     local wifi_lease = nil
 
     local function acquireWifiLease()
@@ -214,7 +228,7 @@ local function runQuickSync(self, on_ui_refresh, callback)
         local elapsed = time.to_s(time.now()) - retry_start_time
         if elapsed + retry_delay > 120 then
             logger.warn("[Syncthing] Quick Sync aborted: Wi‑Fi did not come up within 2 min")
-            self:showNotification(_("Quick Sync skipped — Wi‑Fi unavailable."), 5)
+            self:showNotification(_("Quick Sync skipped — network unavailable."), 5)
             finish({ ok = false, reason = "wifi_timeout" })
             return
         end
@@ -228,7 +242,7 @@ local function runQuickSync(self, on_ui_refresh, callback)
             local ok_enable, err_enable = pcall(function()
                 NetworkMgr:enableWifi(function()
                 if finished then return end
-                if not NetworkMgr:isOnline() then
+                if not hasNetwork() then
                     retry_delay = math.min(retry_delay * 2, 60)
                     scheduleWifiRetry()
                     return
@@ -356,7 +370,7 @@ local function runPeriodicSync(self)
         end, nil, { silent = true })
     end
 
-    if NetworkMgr:isOnline() then
+    if hasNetwork() then
         start_periodic_quick_sync(false)
         return
     end
@@ -373,7 +387,7 @@ local function runPeriodicSync(self)
         local elapsed = time.to_s(time.now()) - retry_start_time
         if elapsed + retry_delay > 480 then
             logger.warn("[Syncthing] Periodic sync aborted: Wi‑Fi timeout after " .. string.format("%.0f", elapsed) .. "s")
-            self:showNotification(_("Periodic sync skipped — Wi‑Fi unavailable."), 5)
+            self:showNotification(_("Periodic sync skipped — network unavailable."), 5)
             finish(true)
             return
         end
@@ -384,7 +398,7 @@ local function runPeriodicSync(self)
             local ok_enable, err_enable = pcall(function()
                 NetworkMgr:enableWifi(function()
                 if finished or sync_started then return end
-                if not NetworkMgr:isOnline() then
+                if not hasNetwork() then
                     retry_delay = math.min(retry_delay * 2, 240)
                     scheduleWifiRetry()
                     return
@@ -446,7 +460,7 @@ end
 
 local function runResumeRestore(self)
     reconcile(self, "resume")
-    if NetworkMgr:isOnline() and self:_chargingConditionMet() then
+    if hasNetwork() and self:_chargingConditionMet() then
         if self._was_running_before_suspend and not self:isRunning() then
             runAutoStart(self, "resume_restore")
         elseif self.periodic_sync_enabled and not self:isRunning() then
