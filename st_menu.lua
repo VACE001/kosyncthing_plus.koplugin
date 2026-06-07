@@ -1445,20 +1445,21 @@ local function getMaintenanceMenu(self, touchmenu_instance)
         },
 
         -- Copy diagnostic info
-        -- Collects plugin version, Syncthing version, running state, port,
-        -- last 5 API errors and last 20 WARN/ERROR log lines into a QR code
-        -- (scan with your phone), then shows the same text in a viewer, and
-        -- also copies it to the clipboard as a backup.
+        -- Collects plugin state, versions, folder health, recent errors and
+        -- log lines into a QR code (scan with your phone), a text viewer,
+        -- and the clipboard.  Paste into a bug report or support request.
         {
             text           = _("Copy diagnostic info"),
-            help_text      = _("Collect plugin state, version info, recent errors and log warnings into a QR code (scan with your phone) and copy to clipboard.\n\nPaste into a bug report or support request."),
+            help_text      = _("Collect plugin state, version info, folder health, recent errors and log lines into a QR code (scan with your phone) and copy to clipboard.\n\nPaste into a bug report or support request."),
             keep_menu_open = true,
             hold_callback  = D.helpHold(_("Useful when reporting bugs. Shows a QR code you can scan with your phone to get the full diagnostic snapshot.")),
 callback = self.safe("Diagnostic snapshot", function()
+    local SEP = string.rep("─", 44)
     local lines = {}
-    local function collect(t) for _, s in ipairs(t) do table.insert(lines, s or "") end end
+    local function ln(s)  lines[#lines + 1] = s or "" end
+    local function sec()  ln(SEP) end
 
-    -- meta
+    -- ── meta ────────────────────────────────────────────────────────────────
     local meta = {}
     do
         local ok, m = pcall(dofile, U.plugin_path .. "_meta.lua")
@@ -1466,161 +1467,119 @@ callback = self.safe("Diagnostic snapshot", function()
     end
     local pid = self:getPid()
 
-    -- Header
-    collect({
-        "=== KOSyncthing+ – Diagnostic Snapshot ===",
-        os.date("%Y-%m-%d %H:%M:%S"),
-        "",
-        "Plugin version:    " .. (meta.version or "unknown"),
-        "Syncthing version: " .. (self:getCurrentVersion() or "not installed"),
-        "Running:           " .. (self:isRunning() and "yes" or "no"),
-        "PID:               " .. (pid and tostring(pid) or "none"),
-        "Port:              " .. tostring(self.syncthing_port or "?"),
-        "Legacy mode:       " .. (U.isLegacy()
-            and (G_reader_settings:readSetting("syncthing_legacy_version") or "unknown")
-            or  "off"),
-        "Device ID:         " .. (self:getDeviceId() and "available" or "not cached"),
-        "",
-    })
+    -- ── KOReader version (best-effort) ───────────────────────────────────────
+    local kr_version = "unknown"
+    do
+        local ok, Version = pcall(require, "version")
+        if ok and Version and Version.getCurrentRevision then
+            kr_version = Version:getCurrentRevision() or "unknown"
+        end
+    end
 
-    -- Binary file
+    -- ── platform string ──────────────────────────────────────────────────────
+    local platform = Device:isKindle() and "Kindle"
+                  or Device:isKobo()   and "Kobo"
+                  or Device:isAndroid() and "Android"
+                  or Device:isPocketBook() and "PocketBook"
+                  or "unknown"
+
+    -- ── device short ID ─────────────────────────────────────────────────────
+    local full_id    = self:getDeviceId()
+    local short_id   = (type(full_id) == "string" and full_id ~= "")
+                       and full_id:sub(1, 7) or "not cached"
+
+    -- ── Header ───────────────────────────────────────────────────────────────
+    ln("KOSyncthing+ " .. (meta.version or "?") .. "  |  " .. os.date("%Y-%m-%d %H:%M"))
+    sec()
+    ln("Plugin    " .. (meta.version or "?")
+     .. "       KOReader  " .. kr_version)
+    ln("Syncthing " .. (self:getCurrentVersion() or "not installed")
+     .. "      Platform  " .. platform)
+    ln("Running   " .. (self:isRunning() and "yes" or "no")
+     .. "           PID       " .. (pid and tostring(pid) or "none"))
+    ln("Port      " .. tostring(self.syncthing_port or "?")
+     .. "          Legacy    " .. (U.isLegacy()
+         and (G_reader_settings:readSetting("syncthing_legacy_version") or "?")
+         or  "off"))
+    ln("Device    " .. short_id)
+
+    -- ── Binary & Process ─────────────────────────────────────────────────────
+    sec()
     local bin_path = U.getBinaryPath()
-    local binary_info = { "=== Binary file ===" }
     if not util.pathExists(bin_path) then
-        binary_info[#binary_info + 1] = "Not found at: " .. bin_path
+        ln("Binary    not found at: " .. bin_path)
     else
-        if U.isELF(bin_path) then
-            binary_info[#binary_info + 1] = "Arch:       " .. (self:getBinaryArch() or "unknown")
-        else
-            binary_info[#binary_info + 1] = "Status:     NOT an ELF binary (text or corrupted)"
+        local arch = U.isELF(bin_path) and (self:getBinaryArch() or "unknown") or "NOT ELF"
+        local size_str = ""
+        do
+            local _ok, lfs2 = pcall(require, "libs/libkoreader-lfs")
+            if not _ok then _ok, lfs2 = pcall(require, "lfs") end
+            if _ok and lfs2 then
+                local attr = lfs2.attributes(bin_path)
+                if attr and attr.size then
+                    size_str = "  " .. U.formatBytes(attr.size)
+                end
+            end
+        end
+        ln("Binary    " .. arch .. size_str)
+        if arch == "NOT ELF" then
             local f = io.open(bin_path, "r")
             if f then
                 local preview = f:read(80)
                 f:close()
                 if preview then
-                    binary_info[#binary_info + 1] = "Preview:    " .. preview:gsub("\n", " "):gsub("%s+", " "):sub(1, 70)
+                    ln("  preview: " .. preview:gsub("\n", " "):gsub("%s+", " "):sub(1, 70))
                 end
-            end
-        end
-        local _lfs_ok, lfs = pcall(require, "libs/libkoreader-lfs")
-        if not _lfs_ok then pcall(require, "lfs") end
-        if lfs then
-            local attr = lfs.attributes(bin_path)
-            if attr and attr.size then
-                binary_info[#binary_info + 1] = "Size:       " .. tostring(attr.size) .. " bytes"
             end
         end
     end
-    binary_info[#binary_info + 1] = ""
-    collect(binary_info)
-
-    -- Process (only when running)
     if pid then
-        local proc_info = { "=== Process ===" }
+        local rss, thr, cpu = "?", "?", "?"
         local f = io.open("/proc/" .. pid .. "/status", "r")
         if f then
             for line in f:lines() do
-                local rss = line:match("^VmRSS:%s*(.*)")
-                if rss then
-                    proc_info[#proc_info + 1] = "RSS:        " .. rss
-                else
-                    local thr = line:match("^Threads:%s*(.*)")
-                    if thr then
-                        proc_info[#proc_info + 1] = "Threads:    " .. thr
-                    end
-                end
+                local v = line:match("^VmRSS:%s*(%d+)")
+                if v then rss = U.formatBytes(tonumber(v) * 1024) end
+                v = line:match("^Threads:%s*(%d+)")
+                if v then thr = v end
             end
             f:close()
         end
         local sf = io.open("/proc/" .. pid .. "/stat", "r")
         if sf then
-            local stat = sf:read("*a")
-            sf:close()
+            local stat = sf:read("*a"); sf:close()
             if stat then
-                local after_paren = stat:match("%) (.*)")
-                if after_paren then
+                local after = stat:match("%) (.*)")
+                if after then
                     local nums = {}
-                    for n in after_paren:gmatch("%S+") do table.insert(nums, n) end
-                    local utime = tonumber(nums[12]) or 0
-                    local stime = tonumber(nums[13]) or 0
-                    proc_info[#proc_info + 1] = "CPU time:   " .. string.format("%.1f s", (utime + stime) / 100)
+                    for n in after:gmatch("%S+") do nums[#nums + 1] = n end
+                    local ut = tonumber(nums[12]) or 0
+                    local st = tonumber(nums[13]) or 0
+                    cpu = string.format("%.1f s", (ut + st) / 100)
                 end
             end
         end
-        proc_info[#proc_info + 1] = ""
-        collect(proc_info)
+        ln("Process   " .. rss .. " RAM   " .. thr .. " threads   " .. cpu .. " CPU")
     end
 
-    -- Filesystem
-    local fs_info = { "=== Filesystem ===" }
+    -- ── Storage & Network ────────────────────────────────────────────────────
+    sec()
     local plugin_fs = util.getFilesystemType(U.plugin_path) or "unknown"
     local config_dir = U.getConfigDir()
-    local config_fs = (config_dir ~= U.plugin_path) and util.getFilesystemType(config_dir) or plugin_fs
+    local config_fs  = (config_dir ~= U.plugin_path)
+                       and util.getFilesystemType(config_dir) or plugin_fs
     local fs_str = plugin_fs
     if config_fs ~= plugin_fs then
         fs_str = "plugin=" .. plugin_fs .. " config=" .. config_fs
     end
-    fs_info[#fs_info + 1] = "Type:       " .. fs_str
+    local free_str = ""
     local free_plugin = U.getFreeSpace(U.plugin_path)
-    if free_plugin then
-        fs_info[#fs_info + 1] = "Free space: " .. U.formatBytes(free_plugin)
-    end
-    fs_info[#fs_info + 1] = ""
-    collect(fs_info)
+    if free_plugin then free_str = "   " .. U.formatBytes(free_plugin) .. " free" end
+    ln("Filesystem  " .. fs_str .. free_str)
 
-    -- Network
-    local net_info = {
-        "=== Network ===",
-        "Loopback:    " .. (U.loopbackIsUp() and "up" or "down"),
-    }
-    local ip = U.getDeviceIP()
-    if ip and ip ~= "127.0.0.1" then
-        net_info[#net_info + 1] = "Device IP:   " .. ip
-    end
-    if Device:isKindle() then
-        local sync_open = U.execOk(os.execute("iptables -C INPUT -p tcp --dport 22000 -j ACCEPT 2>/dev/null"))
-        local disc_open = U.execOk(os.execute("iptables -C INPUT -p udp --dport 21027 -j ACCEPT 2>/dev/null"))
-        net_info[#net_info + 1] = "Sync port:   " .. (sync_open and "open (TCP 22000)" or "blocked (TCP 22000)")
-        net_info[#net_info + 1] = "Discovery:   " .. (disc_open and "open (UDP 21027)" or "blocked (UDP 21027)")
-    end
-    net_info[#net_info + 1] = ""
-    collect(net_info)
-
-    -- Configuration
-    local cfg_info = {
-        "=== Configuration ===",
-        "Folders:     " .. #(self:getFolders() or {}),
-        "Devices:     " .. #(self:getDevices() or {}),
-    }
-    local config_xml = U.getConfigDir() .. "/config.xml"
-    if not util.pathExists(config_xml) then
-        cfg_info[#cfg_info + 1] = "config.xml:  not found"
-    else
-        local f = io.open(config_xml, "r")
-        if f then
-            local content = f:read("*a")
-            f:close()
-            if content and not (content:find("<user>") and content:find("<password>")) then
-                cfg_info[#cfg_info + 1] = "GUI auth:    NOT configured (no password set)"
-            end
-        end
-    end
-    cfg_info[#cfg_info + 1] = ""
-    collect(cfg_info)
-
-    -- Database
-    local db_info = { "=== Database ===" }
     local data_dir, dreason = U.getDataDir()
-    local cfg_dir = U.getConfigDir()
-    db_info[#db_info + 1] = "Location:          " .. tostring(data_dir)
-    db_info[#db_info + 1] = "Resolution:        " .. tostring(dreason)
-    if data_dir ~= cfg_dir then
-        db_info[#db_info + 1] = "Relocated off:     " .. cfg_dir .. "  (FUSE hard_remove)"
-        local free = U.getFreeSpace(data_dir)
-        if free then db_info[#db_info + 1] = "Free (data fs):    " .. U.formatBytes(free) end
-    end
+    local io_errs = 0
     if util.pathExists(log_path) then
-        local io_errs = 0
         local lf = io.open(log_path, "r")
         if lf then
             for line in lf:lines() do
@@ -1628,54 +1587,130 @@ callback = self.safe("Diagnostic snapshot", function()
             end
             lf:close()
         end
-        db_info[#db_info + 1] = "Disk I/O errors:   " .. tostring(io_errs)
-            .. (io_errs > 0 and "  <- DB on a failing filesystem" or "")
     end
-    db_info[#db_info + 1] = ""
-    collect(db_info)
+    local db_line = "Database    " .. tostring(data_dir) .. "  (" .. tostring(dreason) .. ")"
+    if data_dir ~= config_dir then
+        local free2 = U.getFreeSpace(data_dir)
+        db_line = db_line .. (free2 and ("   " .. U.formatBytes(free2) .. " free") or "")
+    end
+    ln(db_line)
+    ln("  I/O errors: " .. tostring(io_errs) .. (io_errs > 0 and "  ⚠ DB on a failing filesystem" or ""))
 
-    -- API errors
-    local api_info = { "=== Recent API Errors (last 5) ===" }
-    local errors = self:getApiErrors()
-    if not errors or #errors == 0 then
-        api_info[#api_info + 1] = "No API errors recorded."
-    else
-        local start = math.max(1, #errors - 4)
-        for i = start, #errors do
-            local e = errors[i]
-            api_info[#api_info + 1] = string.format("[%d] %s %s → %s",
-                i, e.endpoint or "?", e.method or "", e.error or e.status or "?")
+    local ip = U.getDeviceIP()
+    local net_str = "Network     " .. (U.loopbackIsUp() and "up" or "down ⚠")
+    if ip and ip ~= "127.0.0.1" then net_str = net_str .. "   " .. ip end
+    ln(net_str)
+    if Device:isKindle() then
+        local sync_open = U.execOk(os.execute("iptables -C INPUT -p tcp --dport 22000 -j ACCEPT 2>/dev/null"))
+        local disc_open = U.execOk(os.execute("iptables -C INPUT -p udp --dport 21027 -j ACCEPT 2>/dev/null"))
+        ln("  TCP 22000: " .. (sync_open and "open" or "blocked ⚠")
+        .. "   UDP 21027: " .. (disc_open and "open" or "blocked ⚠"))
+    end
+
+    -- ── Configuration ────────────────────────────────────────────────────────
+    local folders  = self:getFolders()  or {}
+    local devices  = self:getDevices()  or {}
+    local gui_auth = ""
+    local config_xml = U.getConfigDir() .. "/config.xml"
+    if util.pathExists(config_xml) then
+        local f = io.open(config_xml, "r")
+        if f then
+            local content = f:read("*a"); f:close()
+            if content and not (content:find("<user>") and content:find("<password>")) then
+                gui_auth = "   GUI auth: not set ⚠"
+            end
         end
     end
-    api_info[#api_info + 1] = ""
-    collect(api_info)
+    ln("Config      folders: " .. #folders .. "   devices: " .. #devices .. gui_auth)
 
-    -- Recent log
-    local log_info = { "=== Recent Log (last 20 WARN/ERROR lines) ===" }
-    if not util.pathExists(log_path) then
-        log_info[#log_info + 1] = "No log file found."
+    -- ── Folders ──────────────────────────────────────────────────────────────
+    sec()
+    local fh = self:getFolderHealth()
+    local folder_states = fh and fh.folder_states or {}
+    ln(string.format("Folders (%d)%s  state       errors", #folders,
+        string.rep(" ", math.max(0, 16 - #tostring(#folders)))))
+    for _, folder in ipairs(folders) do
+        local fid   = folder["id"] or ""
+        local label = folder["label"] or fid
+        local fs    = folder_states[fid] or {}
+        local state = fs.paused and "paused"
+                   or (fs.state or "unknown")
+        local errcnt = fs.errors and "1" or "0"
+        local warn   = (fs.errors and not fs.errors_fixable) and "  ⚠ needs attention" or
+                       (fs.errors and fs.errors_fixable)     and "  (rescan-fixable)"  or ""
+        local label_col = label:sub(1, 20)
+        ln(string.format("  %-20s  %-10s  %s%s",
+            label_col, state, errcnt, warn))
+        if fs.error_texts then
+            for _, msg in ipairs(fs.error_texts) do
+                ln("    ! " .. msg:sub(1, 60))
+            end
+        end
+    end
+
+    -- ── Syncthing log (last 5 entries via REST) ───────────────────────────────
+    sec()
+    ln("Syncthing log (last 5)")
+    if self:isRunning() then
+        local log_resp = self:GET("system/log")
+        local entries  = log_resp and log_resp.data and log_resp.data.messages or {}
+        local start    = math.max(1, #entries - 4)
+        if #entries == 0 then
+            ln("  (none)")
+        else
+            for i = start, #entries do
+                local e   = entries[i]
+                local ts  = (e.when or ""):match("T(%d%d:%d%d:%d%d)") or (e.when or "?"):sub(1, 16)
+                local lvl = (e.level or "info"):upper():sub(1, 7)
+                ln(string.format("  %s  %-7s  %s", ts, lvl, (e.message or ""):sub(1, 55)))
+            end
+        end
     else
-        local log_lines = {}
+        ln("  (Syncthing not running)")
+    end
+
+    -- ── Plugin log (last 5 WARN/ERROR) ───────────────────────────────────────
+    sec()
+    ln("Plugin log (last 5 WARN/ERROR)")
+    if not util.pathExists(log_path) then
+        ln("  (no log file)")
+    else
+        local plugin_lines = {}
         local lf = io.open(log_path, "r")
         if lf then
             for line in lf:lines() do
                 if line:find("%[WARNING%]") or line:find("%[ERROR%]") then
-                    table.insert(log_lines, line)
-                    if #log_lines > 20 then table.remove(log_lines, 1) end
+                    plugin_lines[#plugin_lines + 1] = line
+                    if #plugin_lines > 5 then table.remove(plugin_lines, 1) end
                 end
             end
             lf:close()
         end
-        if #log_lines == 0 then
-            log_info[#log_info + 1] = "No warnings or errors in log."
+        if #plugin_lines == 0 then
+            ln("  (none)")
         else
-            for _, l in ipairs(log_lines) do
-                log_info[#log_info + 1] = l
+            for _, l in ipairs(plugin_lines) do
+                -- trim timestamp prefix to save space: keep from [WARNING] onward
+                local short = l:match("%[W[^%]]+%].*") or l:match("%[E[^%]]+%].*") or l
+                ln("  " .. short:sub(1, 72))
             end
         end
     end
-    log_info[#log_info + 1] = ""
-    collect(log_info)
+
+    -- ── API errors ───────────────────────────────────────────────────────────
+    sec()
+    local api_errors = self:getApiErrors()
+    if not api_errors or #api_errors == 0 then
+        ln("API errors  none")
+    else
+        ln("API errors (" .. #api_errors .. ")")
+        local start = math.max(1, #api_errors - 4)
+        for i = start, #api_errors do
+            local e = api_errors[i]
+            ln(string.format("  [%d] %s %s → %s",
+                i, e.endpoint or "?", e.method or "", e.error or e.status or "?"))
+        end
+    end
 
     local snapshot = table.concat(lines, "\n")
 
