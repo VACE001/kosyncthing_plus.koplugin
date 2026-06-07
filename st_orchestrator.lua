@@ -65,6 +65,10 @@ local function runAutoStart(self, reason, callback)
         safeCallback(callback, reason)
         return
     end
+    if G_reader_settings:isTrue("syncthing_user_paused") then
+        safeCallback(callback, reason)
+        return
+    end
 
     local function do_start()
         startSilent(self, callback)
