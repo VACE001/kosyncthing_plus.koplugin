@@ -805,11 +805,15 @@ local function stop(self, callback, is_suspend, silent)
 	local function finish_stop()
         os.remove(pid_path)
 		-- If this was a deliberate manual stop (not suspend), clear the
-		-- "was running" flag so we don't resurrect Syncthing on next start,
-		-- and set user_paused so Autostart does not restart it automatically.
+		-- "was running" flag so we don't resurrect Syncthing on next start.
+        -- Only set user_paused for explicit manual stops (not silent/automatic
+        -- stops like network disconnect or app close), so Autostart resumes
+        -- normally on reconnect or next launch.
 		if not is_suspend then
-			G_reader_settings:saveSetting("syncthing_was_running", false)
-			G_reader_settings:saveSetting("syncthing_user_paused", true)
+		   G_reader_settings:saveSetting("syncthing_was_running", false)
+		   if not silent then
+		    	G_reader_settings:saveSetting("syncthing_user_paused", true)
+		   end
 		end
         self:_cacheInvalidate()
         releaseKindlePort(self)
