@@ -337,6 +337,7 @@ This plugin is tested and confirmed working on:
 | Platform | Device | Notes |
 |----------|--------|-------|
 | Kindle | **Paperwhite 12th Generation (2024)** | Standard mode |
+| Kobo | **Libra Colour (2024)** | Standard mode |
 
 (Please send pull requests to add your tested device here!)
 
