@@ -90,8 +90,15 @@ local function acquireWifi(lease, spec)
     spec = normalizeWifiSpec(spec)
     if not spec or not NetworkMgr then return end
 
+    -- Check isConnected first (has IP/LAN association) so that LAN-only networks
+    -- without an internet route are treated as "already up".  Fall back to
+    -- isOnline() on platforms where isConnected is not available.
     local was_online = false
-    if type(NetworkMgr.isOnline) == "function" then
+    if type(NetworkMgr.isConnected) == "function" then
+        local ok, connected = pcall(function() return NetworkMgr:isConnected() end)
+        was_online = ok and connected == true
+    end
+    if not was_online and type(NetworkMgr.isOnline) == "function" then
         local ok, online = pcall(function() return NetworkMgr:isOnline() end)
         was_online = ok and online == true
     end
