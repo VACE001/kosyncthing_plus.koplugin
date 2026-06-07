@@ -1137,15 +1137,14 @@ local function getAutomationMenu(self)
                         .. "Manual actions always show feedback directly in the menu, regardless of this setting.")
 	-- Autostart Syncthing
     local always_help = _(
-						"Automatically start Syncthing and keep it running whenever possible.\n\n"
-						.. "• Wi-Fi will be turned on automatically when needed.\n"
-						.. "• If Wi-Fi cannot be turned on, Syncthing will not start.\n"
-						.. "• A health-check timer runs every 60 seconds: if Syncthing "
-						.. "should be running but isn't, it tries to start it again.\n"
-						.. "• When Wi-Fi disconnects, Syncthing stops automatically.\n\n"
-						.. "Best for users who want continuous background sync without "
-						.. "wasting resources when offline. Manually stopping Syncthing pauses\n"
-						.. "the auto-start until you start it again.")
+					"Automatically start Syncthing and keep it running whenever possible.\n\n"
+					.. "• Wi-Fi will be turned on automatically when needed.\n"
+					.. "• If Wi-Fi cannot be turned on, Syncthing will not start.\n"
+					.. "• A health-check timer runs every 60 seconds: if Syncthing "
+					.. "should be running but isn't, it tries to start it again.\n"
+					.. "• When Wi-Fi disconnects, Syncthing stops automatically.\n"
+					.. "• Works on LAN-only networks without internet access.\n\n"
+					.. "Manually stopping Syncthing pauses the auto-start until you start it again.")
 
     local charging_help = _("Automation rules above only fire if the device is plugged in and charging.\n\n"
                          .. "Useful when you have a large library and don't want an unexpected Wi-Fi join to drain your battery mid-read.")
