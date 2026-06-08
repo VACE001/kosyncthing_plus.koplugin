@@ -505,20 +505,6 @@ crash KOSyncthing+.
 The plugin also broadcasts standard KOReader events that any widget
 can listen to via `UIManager:registerListener`.
 
-### `SyncthingStateChanged`
-
-Fired when:
-
-- The daemon state changes
-- Folder health changes
-- Cache invalidation occurs
-
-Examples:
-
-- Start
-- Stop
-- Cache refresh
-
 ### `SyncthingSyncCompleted`
 
 Fired after a Quick Sync completes.

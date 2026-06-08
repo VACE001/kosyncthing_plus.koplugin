@@ -280,6 +280,8 @@ function Mock.install()
     package.preload["st_utils"] = function()
         return {
             FOLDER_CACHE_TTL = 15,
+            setAutostartPaused = function(v) Mock.state.autostart_paused = v and true or false end,
+            isAutostartPaused  = function() return Mock.state.autostart_paused == true end,
             ALL_SETTINGS_KEYS = {},
             plugin_path = "/tmp/koreader/plugins/kosyncthing_plus.koplugin/",
             shellEscape = function(s)

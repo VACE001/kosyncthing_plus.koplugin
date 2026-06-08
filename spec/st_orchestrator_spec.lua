@@ -117,21 +117,20 @@ describe("runAutoStart", function()
         assert.are.equal(1, Mock.state.wifi_enable_calls)
     end)
 
-    it("fires callback immediately when user_paused flag is set", function()
+    it("fires callback immediately when Autostart is paused (session flag)", function()
         Mock.state.wifi_online = true
-        G_reader_settings:saveSetting("syncthing_user_paused", true)
+        Mock.state.autostart_paused = true
         local orch = freshOrchestrator()
         local cb_called = false
         local plugin = makePlugin()
         orch.runAutoStart(plugin, "network_connected", function() cb_called = true end)
         assert.is_true(cb_called)
         assert.are.equal(0, plugin.start_calls)
-        G_reader_settings:delSetting("syncthing_user_paused")
     end)
 
-    it("starts normally when user_paused flag is absent", function()
+    it("starts normally when Autostart is not paused", function()
         Mock.state.wifi_online = true
-        G_reader_settings:delSetting("syncthing_user_paused")
+        Mock.state.autostart_paused = false
         local orch = freshOrchestrator()
         local plugin = makePlugin()
         orch.runAutoStart(plugin, "network_connected", nil)
@@ -520,9 +519,9 @@ describe("runNetworkConnected", function()
     end)
 
     -- ── Autostart survives automatic network disconnect/reconnect ───────────
-    it("auto_start_always: restarts after automatic network-loss stop (user_paused NOT set)", function()
+    it("auto_start_always: restarts after automatic network-loss stop (Autostart not paused)", function()
         -- Simulate the full cycle:
-        --   network drops  → runNetworkDisconnected → stop(silent=true) → user_paused must NOT be set
+        --   network drops  → runNetworkDisconnected → stop(silent=true) → Autostart must NOT be paused
         --   network returns → runNetworkConnected   → runAutoStart      → Syncthing starts again
         Mock.state.wifi_online = true
         local orch = freshOrchestrator()
@@ -530,9 +529,9 @@ describe("runNetworkConnected", function()
             isRunning = function(self) return self._running end,
             stop = function(self, cb, is_suspend, silent)
                 -- Simulate what st_process.stop() does after the fix:
-                -- only set user_paused when not silent and not suspend.
+                -- only pause Autostart when not silent and not suspend.
                 if not is_suspend and not silent then
-                    G_reader_settings:saveSetting("syncthing_user_paused", true)
+                    Mock.state.autostart_paused = true
                 end
                 self._running = false
                 if cb then cb() end
@@ -545,8 +544,8 @@ describe("runNetworkConnected", function()
         Mock.state.wifi_online = false
         orch.runNetworkDisconnected(plugin)
         assert.is_false(plugin._running)
-        assert.is_nil(Mock.state.settings["syncthing_user_paused"],
-            "automatic stop must not set user_paused")
+        assert.is_falsy(Mock.state.autostart_paused,
+            "automatic stop must not pause Autostart")
 
         -- Step 2: network reconnect → Autostart should fire
         Mock.state.wifi_online = true

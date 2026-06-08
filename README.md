@@ -311,7 +311,7 @@ version.  Factory reset and plugin removal clean up both directories.
 - **View errors only** — filters the log to show only `[WARNING]` and `[ERROR]` lines, making it easier to spot problems without scrolling through the full output.
 - **View API errors (N)** — shows up to 8 recent REST API errors (the number is shown in the menu label).
 - **Clear all API errors** — removes all stored API errors.
-- **Copy diagnostic info** — collects plugin version, Syncthing version, running state, port, binary file status (ELF check, architecture, size), process details (RSS, threads, CPU time), filesystem type & free space, network state (loopback, IP, Kindle firewall ports), folder/device counts, database location, last 5 API errors, and last 20 WARN/ERROR log lines. Displays the result as a QR code (scan with your phone) and copies the same text to the clipboard. Paste into a bug report or support request.
+- **Copy diagnostic info** — collects plugin version, Syncthing version, running state, port, binary file status (ELF check, architecture, size), process details (RSS, threads, CPU time), filesystem type & free space, network state (loopback, IP, Kindle firewall ports), folder/device counts, database location, last 5 API errors, the last 5 Syncthing log entries, and the last 5 plugin WARN/ERROR lines. Displays the result as a QR code (scan with your phone) and copies the same text to the clipboard. Paste into a bug report or support request.
 - **Copy API key** — copies the Syncthing REST API key to the clipboard.
 - **Reset sync database** — deletes the index database directory, forcing a full re-index on the next start. Stops Syncthing first if running.
 - **Reset everything to factory defaults** — double-confirmed destructive reset: stops Syncthing, deletes `settings/syncthing/` entirely (config, TLS keys, device ID, database), wipes all `syncthing_*` keys from KOReader settings, and resets all in-memory plugin state. Synced files on disk are **not** deleted.  After stopping Syncthing, the reset verifies that the daemon has actually exited before wiping any files. If Syncthing cannot be stopped (e.g. due to a kernel I/O hang), the reset is refused with a clear message.
@@ -634,7 +634,7 @@ KOSyncthing+                                   ← top‑level entry
     │   only active when errors are stored
     ├── Clear all API errors                  ← removes all stored API errors
     ├── Copy diagnostic info                  ← version, running state, last 5 API
-    │                                           errors and last 20 WARN/ERROR log
+    │                                           errors and last 5 WARN/ERROR log
     │                                           lines; shown as QR code + clipboard
     ├── Copy API key                          ← copies REST API key to clipboard;
     │                                           only active when a key exists
@@ -680,7 +680,7 @@ Automatically start Syncthing and keep it running whenever possible.
 should be running but isn't, it tries to start it again.
 • When Wi-Fi disconnects, Syncthing stops automatically.
 • Works also on LAN-only networks without internet access.
-• Manually stopping Syncthing pauses auto-start until you start it again.
+• Manually stopping Syncthing pauses auto-start for the rest of this session — it starts again next time you open KOReader. Turn this off to stop it permanently.
 
 ### Periodic Quick Sync
 
@@ -776,6 +776,7 @@ The dialog shown depends on the file type:
 - Shows "Your device: X%" vs "Other device: Y%".
 - Tap **Mine (X%)** or **Theirs (Y%)** to keep that version.
 - Both `percent_finished` (current KOReader format) and `last_percent` (pre-2022 format) are recognised; a dialog is shown if either side has either field.
+- When the conflict copy carries **this device’s** short ID (Syncthing set your own version aside when a remote write arrived first), the labels switch to **Keep incoming (X%)** / **Restore mine (Y%)** — incoming progress vs your own — so you don’t accidentally keep the wrong reading position.
 
 **Any other file (or metadata without progress):**
 - Shows both modification timestamps with a hint ("→ Your version is newer." etc.).
@@ -795,7 +796,7 @@ The **Resolve all N conflicts…** option offers three strategies:
 - **Keep ALL mine** — discards every conflict copy.
 - **Use ALL theirs** — replaces every local file with its conflict copy.
 
-The conflict list is capped at 50 visible entries; a note prompts you to use bulk resolve if more exist.
+Each row is labelled by the book or file the conflict belongs to — for reading-progress conflicts the book name rather than the internal `metadata.*.lua` — with the time Syncthing recorded the conflict shown on the right. The conflict list is capped at 50 visible entries; a note prompts you to use bulk resolve if more exist.
 
 </details>
 
@@ -816,7 +817,7 @@ A quick overview of what's available:
 - **Conflict resolution** – `resolveAllConflicts` (keep_local / use_remote / auto_merge), `resolveConflictByPath`
 - **Information** – `getFolders`, `getDevices`, `getPendingDevices`, `getPendingFolders`, `getConflictsDetailed`, `getFolderIgnore`, `setFolderIgnore`
 - **Proxied REST call** – `apiCall(endpoint, method, body)` — talk to Syncthing without ever seeing the API key
-- **Events** – `onStatusChange` / `offStatusChange` (custom listeners) and KOReader global events (`SyncthingStateChanged`, `SyncthingSyncCompleted`, `SyncthingConflictDetected`)
+- **Events** – `onStatusChange` / `offStatusChange` (custom listeners) and KOReader global events (`SyncthingSyncCompleted`, `SyncthingConflictDetected`)
 - **Utilities** – `formatBytes`, `formatTime`, `isValidDeviceID`
 
 The API is **platform-agnostic**.  On Android (remote mode) every call is transparently routed to the remote Syncthing app — `apiCall` and the `status` / `control` / `info` helpers all work unchanged, and the reported `version` is the same.  Companion plugins need **no** Android-specific code: they consume `_G.KOSyncthingPlusAPI` exactly as they do on Kindle/Kobo.

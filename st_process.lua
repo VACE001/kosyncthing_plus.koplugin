@@ -7,7 +7,6 @@ local InfoMessage     = require("ui/widget/infomessage")
 local NetworkMgr      = require("ui/network/manager")
 local ffiutil         = require("ffi/util")
 local logger          = require("logger")
-local Event 		  = require("ui/event")
 local JSON 			  = require("json")
 local util            = require("util")
 local _               = require("syncthing_i18n").gettext
@@ -297,7 +296,7 @@ local function start(self, callback)
 	local silent_start = self._silentStart
     self._silentStart = nil
 
-	G_reader_settings:delSetting("syncthing_user_paused")
+	U.setAutostartPaused(false)
 
     if not binaryExists(self) then
         if silent_start then
@@ -691,10 +690,6 @@ local function start(self, callback)
                     end
                 end
 
-                -- Broadcast event so any open menu updates immediately
-                UIManager:nextTick(function()
-                    UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
-                end)
                 self:_invalidateConflictCache()
 
                 -- Notify companion plugins
@@ -723,7 +718,6 @@ local function start(self, callback)
                     "see Setup → Legacy Syncthing.\n\n" ..
                     "Check Maintenance → View logs for details.")
             })
-            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
         end
     end
     UIManager:scheduleIn(0.5, check_pid)
@@ -806,13 +800,13 @@ local function stop(self, callback, is_suspend, silent)
         os.remove(pid_path)
 		-- If this was a deliberate manual stop (not suspend), clear the
 		-- "was running" flag so we don't resurrect Syncthing on next start.
-		-- Only set user_paused for explicit manual stops (silent=false):
+		-- Only pause Autostart (a session-only flag) on explicit manual stops:
 		-- automatic stops (network disconnect, app close) pass silent=true
 		-- and must NOT set the flag, or Autostart breaks on reconnect/relaunch.
 		if not is_suspend then
 			G_reader_settings:saveSetting("syncthing_was_running", false)
 			if not silent then
-				G_reader_settings:saveSetting("syncthing_user_paused", true)
+				U.setAutostartPaused(true)
 			end
 		end
         self:_cacheInvalidate()
@@ -823,11 +817,6 @@ local function stop(self, callback, is_suspend, silent)
 
         -- Notify companion plugins
         if self._notifiers then self._notifiers.notifyProcessStopped() end
-
-        -- Broadcast event so any open menu updates immediately
-        UIManager:nextTick(function()
-            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
-        end)
 
         UIManager:allowStandby()
         self._stopping = false

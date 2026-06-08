@@ -121,6 +121,20 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
 
     local name = displayName(conflict_path)
 
+    -- Which side is the conflict copy?  Syncthing names a conflict file with
+    -- the short ID of the device that last wrote the *moved-aside* copy.  When
+    -- that is THIS device, Syncthing set our local version aside because a
+    -- remote write arrived first — so original_path now holds the incoming
+    -- change and the conflict copy holds our own version.  Resolving this once
+    -- lets every dialog and message below say "incoming" vs "yours" correctly
+    -- instead of the paradoxical "Theirs (this device)".
+    local short_id = _parseConflictShortId(conflict_path)
+    local my_short = (function()
+        local ok, id = pcall(function() return self:getDeviceId() end)
+        return (ok and type(id) == "string") and id:sub(1, 7) or nil
+    end)()
+    local conflict_is_mine = short_id and my_short and short_id == my_short:upper()
+
 	local function doKeepLocal()
 		local ok, err = FS.remove(conflict_path)
 		if ok then
@@ -130,7 +144,9 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
 			if touchmenu_instance then touchmenu_instance:updateItems() end
 			UIManager:show(InfoMessage:new{
 				timeout = 2,
-				text    = T(_("Kept your version of \"%1\". Conflict copy deleted."), name),
+				text    = conflict_is_mine
+					and T(_("Kept the incoming version of \"%1\". Your conflict copy was deleted."), name)
+					or  T(_("Kept your version of \"%1\". Conflict copy deleted."), name),
 			})
 		else
 			UIManager:show(InfoMessage:new{
@@ -142,7 +158,9 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
 	
 		local function doUseConflict()
 		UIManager:show(ConfirmBox:new{
-			text        = T(_("Replace your local \"%1\" with the conflict copy?\n\nThis cannot be undone."), name),
+			text        = conflict_is_mine
+				and T(_("Restore your version of \"%1\"?\n\nThe incoming change will be discarded. This cannot be undone."), name)
+				or  T(_("Replace your local \"%1\" with the conflict copy?\n\nThis cannot be undone."), name),
 			ok_text     = _("Yes, replace it"),
 			cancel_text = _("Cancel"),
 			ok_callback = function()
@@ -154,7 +172,9 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
 					if touchmenu_instance then touchmenu_instance:updateItems() end
 					UIManager:show(InfoMessage:new{
 						timeout = 2,
-						text    = T(_("Conflict version of \"%1\" applied."), name),
+						text    = conflict_is_mine
+							and T(_("Your version of \"%1\" restored."), name)
+							or  T(_("Conflict version of \"%1\" applied."), name),
 					})
 				else
 					UIManager:show(InfoMessage:new{
@@ -217,21 +237,40 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
         local conf_raw = _readPercent(conflict_path)
         local orig_pct = orig_raw and math.floor(orig_raw * 100 + 0.5) or nil
         local conf_pct = conf_raw and math.floor(conf_raw * 100 + 0.5) or nil
-        local orig_str = orig_pct and (orig_pct .. "%") or _("no date")
-        local conf_str = conf_pct and (conf_pct .. "%") or _("no date")
+        local orig_str = orig_pct and (orig_pct .. "%") or _("unknown")
+        local conf_str = conf_pct and (conf_pct .. "%") or _("unknown")
 
-        UIManager:show(ConfirmBox:new{
-            text = T(_(
-                "Reading progress conflict: \"%1\"\n\n" ..
-                "Your device:   %2\n" ..
-                "Other device:  %3\n\n" ..
-                "Keep which version?"),
-                name, orig_str, conf_str),
-            ok_text         = T(_("Mine (%1)"),   orig_str),
-            cancel_text     = T(_("Theirs (%1)"), conf_str),
-            ok_callback     = doKeepLocal,
-            cancel_callback = doUseConflict,
-        })
+        if conflict_is_mine then
+            -- Our local progress was set aside; original_path now holds the
+            -- progress that arrived from the other device.
+            UIManager:show(ConfirmBox:new{
+                text = T(_(
+                    "Reading progress conflict: \"%1\"\n\n" ..
+                    "Syncthing received progress from another device and\n" ..
+                    "set your local progress aside as a conflict copy.\n\n" ..
+                    "Incoming progress:  %2\n" ..
+                    "Your progress:      %3\n\n" ..
+                    "Keep which progress?"),
+                    name, orig_str, conf_str),
+                ok_text         = T(_("Keep incoming (%1)"), orig_str),
+                cancel_text     = T(_("Restore mine (%1)"),  conf_str),
+                ok_callback     = doKeepLocal,
+                cancel_callback = doUseConflict,
+            })
+        else
+            UIManager:show(ConfirmBox:new{
+                text = T(_(
+                    "Reading progress conflict: \"%1\"\n\n" ..
+                    "Your device:   %2\n" ..
+                    "Other device:  %3\n\n" ..
+                    "Keep which version?"),
+                    name, orig_str, conf_str),
+                ok_text         = T(_("Mine (%1)"),   orig_str),
+                cancel_text     = T(_("Theirs (%1)"), conf_str),
+                ok_callback     = doKeepLocal,
+                cancel_callback = doUseConflict,
+            })
+        end
         return
     end
 
@@ -245,15 +284,7 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
     local orig_ts    = formatMtime(orig_mtime)
     local conf_ts    = formatMtime(conf_mtime)
 
-    local short_id   = _parseConflictShortId(conflict_path)
-    local my_short   = (function()
-        local ok, id = pcall(function() return self:getDeviceId() end)
-        return (ok and type(id) == "string") and id:sub(1, 7) or nil
-    end)()
-    -- conflict_is_mine: the conflict copy was last written by this device.
-    -- Syncthing moved our version aside when a remote write arrived first,
-    -- so original_path now holds the incoming change, not our own version.
-    local conflict_is_mine = short_id and my_short and short_id == my_short:upper()
+    -- short_id / my_short / conflict_is_mine were resolved once near the top.
     local conf_device_name = (not conflict_is_mine)
         and _deviceNameForShortId(self, short_id)
         or nil
@@ -384,9 +415,6 @@ local function autoMergeReadingProgress(self, conflict_paths)
     -- should re-fetch — see notifyConflictsChanged in st_api_public.
     if stats.merged > 0 then
         if self._notifiers then self._notifiers.notifyConflictsChanged(nil) end
-        -- Update any open menu immediately rather than waiting for the next health cycle
-        -- UIManager is imported at module level; require Event once (cached by Lua).
-        UIManager:broadcastEvent(require("ui/event"):new("SyncthingStateChanged"))
     end
 
     return stats

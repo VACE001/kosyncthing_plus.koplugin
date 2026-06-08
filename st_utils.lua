@@ -26,6 +26,24 @@ local NO_CACERT_MSG = _(
 
 local FOLDER_CACHE_TTL = 15
 
+-- Session-only "Autostart paused" flag.  A manual Stop sets it so the
+-- health-check timer, resume, network-connected and charging triggers do NOT
+-- restart the daemon for the rest of THIS session — the desktop "I closed it
+-- on purpose" model.  It deliberately lives in this module (required once and
+-- shared by the FileManager and Reader plugin instances) rather than on the
+-- plugin object, so it survives FileManager<->Reader navigation and suspend/
+-- resume; and because it is plain Lua state, a KOReader restart reloads this
+-- module and clears it, so Autostart starts the daemon again next launch.
+local autostart_paused = false
+
+local function setAutostartPaused(v)
+    autostart_paused = v and true or false
+end
+
+local function isAutostartPaused()
+    return autostart_paused
+end
+
 
 local function formatTime(iso_str)
     if not iso_str or iso_str == "" then return _("N/A") end
@@ -254,7 +272,6 @@ local ALL_SETTINGS_KEYS = {
     "syncthing_android_scheme",
     -- Opt-in auto-merge after Quick Sync completes.
     "syncthing_auto_merge_conflicts",
-	"syncthing_user_paused",
 }
 
 local function cacertExists()
@@ -692,6 +709,8 @@ return {
     DANGEROUS_PATHS           = DANGEROUS_PATHS,
     NO_CACERT_MSG             = NO_CACERT_MSG,
     FOLDER_CACHE_TTL          = FOLDER_CACHE_TTL,
+    setAutostartPaused        = setAutostartPaused,
+    isAutostartPaused         = isAutostartPaused,
     ALL_SETTINGS_KEYS         = ALL_SETTINGS_KEYS,
     plugin_path               = plugin_path,
     cacert_path               = cacert_path,

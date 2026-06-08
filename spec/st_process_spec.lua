@@ -41,6 +41,8 @@ local function installRichStUtils(overrides)
             isOk                = function(r) return r ~= nil and r.ok == true end,
             errOf               = function(r) return (r and r.error) or "no response" end,
             FOLDER_CACHE_TTL    = 15,
+            setAutostartPaused  = function(v) Mock.state.autostart_paused = v and true or false end,
+            isAutostartPaused   = function() return Mock.state.autostart_paused == true end,
             formatBytes         = tostring,
             isELF               = overrides.isELF or function(_path) return true end,
         }
@@ -713,19 +715,6 @@ describe("start() check_pid loop", function()
         assert.are.equal(0, Mock.state.standby)
     end)
 
-    it("broadcasts SyncthingStateChanged on success", function()
-        setupSuccessEnv()
-        local P = reloadProcess()
-        local plugin = makePlugin()
-        P.start(plugin, nil)
-        Mock.runTimers(10)
-        local found = false
-        for _, e in ipairs(Mock.state.broadcasts) do
-            if e.name == "SyncthingStateChanged" then found = true end
-        end
-        assert.is_true(found)
-    end)
-
     it("shows 'Syncthing started' InfoMessage on non-silent start", function()
         setupSuccessEnv()
         local P = reloadProcess()
@@ -992,7 +981,7 @@ describe("stop()", function()
         assert.are.equal(false, Mock.state.settings["syncthing_was_running"])
     end)
 
-    -- ── user_paused flag ────────────────────────────────────────────────────
+    -- ── Autostart session pause ────────────────────────────────────────────────────
 
     local function gracefulStop(P, plugin, pid, is_suspend, silent)
         -- Helper: set up a live pid and run a graceful stop to completion.
@@ -1015,21 +1004,21 @@ describe("stop()", function()
         os.execute = orig
     end
 
-    it("sets user_paused on explicit manual stop (silent=false)", function()
+    it("pauses Autostart on explicit manual stop (silent=false)", function()
         local P = reloadProcess()
         local plugin = makePlugin()
         gracefulStop(P, plugin, 600, false, false)
-        assert.is_true(Mock.state.settings["syncthing_user_paused"])
+        assert.is_true(Mock.state.autostart_paused)
     end)
 
-    it("does NOT set user_paused on automatic stop (silent=true)", function()
+    it("does NOT pause Autostart on automatic stop (silent=true)", function()
         local P = reloadProcess()
         local plugin = makePlugin()
         gracefulStop(P, plugin, 601, false, true)
-        assert.is_nil(Mock.state.settings["syncthing_user_paused"])
+        assert.is_falsy(Mock.state.autostart_paused)
     end)
 
-    it("does NOT set user_paused on suspend stop", function()
+    it("does NOT pause Autostart on suspend stop", function()
         -- Suspend path is synchronous (SIGTERM+SIGKILL), not graceful.
         setPid(602)
         execute_map["kill -0 602"] = 0
@@ -1039,18 +1028,18 @@ describe("stop()", function()
         local P = reloadProcess()
         local plugin = makePlugin()
         P.stop(plugin, nil, true, false)
-        assert.is_nil(Mock.state.settings["syncthing_user_paused"])
+        assert.is_falsy(Mock.state.autostart_paused)
     end)
 
-    it("clears user_paused when start() is called", function()
-        G_reader_settings:saveSetting("syncthing_user_paused", true)
+    it("clears the Autostart pause when start() is called", function()
+        Mock.state.autostart_paused = true
         -- start() exits early (binary missing) but must still clear the flag.
         local P = reloadProcess()
         local plugin = makePlugin()
         -- Silent start with missing binary fires callback and returns early.
         plugin._silentStart = true
         P.start(plugin, function() end)
-        assert.is_nil(Mock.state.settings["syncthing_user_paused"])
+        assert.is_falsy(Mock.state.autostart_paused)
     end)
 end)
 

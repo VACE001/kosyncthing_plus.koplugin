@@ -16,6 +16,7 @@ local time 		  = require("ui/time")
 local T           = require("ffi/util").template
 local _           = require("syncthing_i18n").gettext
 local Guard       = require("st_guard")
+local U           = require("st_utils")
 
 local function safeCallback(callback, ...)
     if type(callback) ~= "function" then return end
@@ -75,7 +76,7 @@ local function runAutoStart(self, reason, callback)
         safeCallback(callback, reason)
         return
     end
-    if G_reader_settings:isTrue("syncthing_user_paused") then
+    if U.isAutostartPaused() then
         safeCallback(callback, reason)
         return
     end

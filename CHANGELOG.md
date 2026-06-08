@@ -1,5 +1,29 @@
 # Changelog
 
+## [v1.1.4] — 2026-06-08
+
+### Changed
+- **Manual Stop is now session-only** — Syncthing starts again on the next
+  KOReader launch; only turning off the Autostart toggle stops it for good.
+- **Conflict list shows readable names** — book/file name and detection time
+  instead of the raw `…sync-conflict-…` filename.
+- **Redesigned Copy diagnostic info** — labelled sections and aligned columns;
+  fixes wrapped/doubled separators on Kindle.
+
+### Fixed
+- **Reading-progress conflicts no longer swap "Mine" and "Theirs"** when this
+  device wrote the moved-aside copy — the dialog now offers **Keep incoming** /
+  **Restore mine** with the correct percentages.
+- Conflict-resolution messages are now orientation-aware.
+- Missing reading percentage shows **unknown** instead of **no date**.
+- **Autostart now starts on a cold launch.**
+- **Android: auto-merge after Rescan waits for the rescan to land** instead of
+  running before any conflicts exist.
+
+### Removed
+- Dead `SyncthingStateChanged` event (no listener; the broadcasts did nothing).
+  `SyncthingSyncCompleted` and `SyncthingConflictDetected` are unchanged.
+
 ## [v1.1.3] — 2026-06-07
 
 ### Added

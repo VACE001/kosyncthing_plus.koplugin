@@ -9,7 +9,6 @@ local NetworkMgr      = require("ui/network/manager")
 local ffiutil         = require("ffi/util")
 local logger          = require("logger")
 local util 			  = require("util")
-local Event 	 	  = require("ui/event")
 local time 		  	  = require("ui/time")
 local T               = ffiutil.template
 
@@ -118,13 +117,11 @@ end
 
 -- Conflict files on disk changed.  Always paired with invalidateFolders
 -- because resolving a conflict can change the folder's needBytes.
--- Also broadcasts SyncthingStateChanged so any open menu updates immediately.
 local function invalidateConflictCache(self)
     if not self.cache then return end
     self.cache:remove("conflicts")
     self.cache:remove("folder_health")
     self.cache:remove("any_paused")
-	UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
 end
 
 local function cacheInvalidate(self)
@@ -132,8 +129,6 @@ local function cacheInvalidate(self)
     self.cache:remove("is_running")
     self.cache:remove("folder_health")
     self.cache:remove("any_paused")
-	-- Broadcast event so any open menu updates immediately
-    UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
 end
 
 ---------------------------------------------------------------------------
@@ -391,7 +386,6 @@ function Syncthing:init()
                 self._last_sync_progress = nil
                 self._health_sync_snapshot = nil
             end
-            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
         end
         end, debug.traceback)
         if not ok then
@@ -448,6 +442,23 @@ function Syncthing:init()
             -- cancels the deferred restore.
             self._was_running_before_suspend = true
         end
+    elseif not self._android_mode and self.auto_start_always then
+        -- Cold-start Autostart.  The branch above only RESTORES a daemon that
+        -- was already running before the last session ended (was_running=true);
+        -- it never cold-starts one.  When Autostart is enabled but Syncthing
+        -- was NOT running at shutdown (you turned Autostart on without starting
+        -- it, or it was auto-stopped), the ONLY remaining cold-start trigger is
+        -- the health-check timer (scheduled 8 s above).  But onCloseWidget
+        -- cancels that timer on every FileManager<->Reader transition, so on
+        -- many real startups it never fires and nothing ever starts — Autostart
+        -- silently does nothing.  Start it directly here instead.  runAutoStart
+        -- re-checks isRunning (no double start across the FM/Reader instances),
+        -- the session Autostart pause via isAutostartPaused (so a manual stop
+        -- is still respected for the rest of the session — and because that
+        -- flag lives in st_utils, it is shared across the FM/Reader instances,
+        -- so navigation does not silently un-pause), the charging gate and the
+        -- network, so calling it unconditionally on every init() is safe.
+        self:runAutoStart("init_autostart")
     end
 end
 

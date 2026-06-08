@@ -34,7 +34,6 @@ local NetworkMgr  = require("ui/network/manager")
 local sort 		  = require("sort")
 local FS 		  = require("st_filesystem")
 local ffiutil     = require("ffi/util")
-local Event 	  = require("ui/event")
 local util        = require("util")
 local _rapidjson_ok, _rapidjson = pcall(require, "rapidjson")
 local JSON = _rapidjson_ok and _rapidjson or require("json")
@@ -84,6 +83,28 @@ end
 -- action (auto-merge / keep-mine / use-theirs) followed by one row per
 -- conflicting file (capped at 50).  Shared by the "Conflicts" door in the
 -- status menu and by the standalone view opened from the status header.
+-- Make conflict rows readable: turn the raw
+-- "<name>.sync-conflict-YYYYMMDD-HHMMSS-<DEVICE>.<ext>" filename into the
+-- book/file it actually belongs to, plus a compact timestamp for the right
+-- column.  KOReader sidecar (.sdr) conflicts are about reading progress, so we
+-- surface the book name instead of the opaque "metadata.epub.lua".
+local function conflictDisplayName(conflict_path)
+    local orig = require("st_conflict").deriveOriginalPath(conflict_path)
+    local sdr  = orig:match("([^/]+)%.sdr/")
+    if sdr then
+        return (sdr:gsub("%.[%w]+$", ""))
+    end
+    return orig:match("/([^/]+)$") or orig
+end
+
+local function conflictWhen(conflict_path)
+    local d, t = conflict_path:match("sync%-conflict%-(%d%d%d%d%d%d%d%d)%-(%d%d%d%d%d%d)")
+    if d and t then
+        return d:sub(5, 6) .. "-" .. d:sub(7, 8) .. " " .. t:sub(1, 2) .. ":" .. t:sub(3, 4)
+    end
+    return nil
+end
+
 local function buildConflictsItems(self, conflicts)
     local items = {}
 
@@ -200,14 +221,16 @@ local function buildConflictsItems(self, conflicts)
             })
             break
         end
-        local label = conflict_path:match("/([^/]+)$") or conflict_path
+        local name = conflictDisplayName(conflict_path)
+        local when = conflictWhen(conflict_path)
         table.insert(items, {
-            text           = "  " .. label,
+            text           = "  " .. name,
+            mandatory      = when,
             keep_menu_open = true,
             hold_callback  = D.helpHold(T(_(
                 "Sync conflict for: %1\n\n"
                 .. "Tap to choose: keep this device's version, use the other device's version, or open both for review."),
-                label)),
+                name)),
             callback       = self.safe("Conflict resolve", function(tmi)
                 self:resolveConflict(conflict_path, tmi)
             end),
@@ -559,7 +582,6 @@ local function getStatusMenu(self, touchmenu_instance)
                                             local ok = U.isOk(result)
                                             self:_cacheInvalidate()
                                             self:_invalidateFolders()
-                                            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
                                             if ok then
                                                 UIManager:show(InfoMessage:new{
                                                     timeout = 3,
@@ -596,7 +618,6 @@ local function getStatusMenu(self, touchmenu_instance)
                             local ok = U.isOk(result)
                             self:_cacheInvalidate()
                             self:_invalidateFolders()
-                            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
                             if ok then
                                 UIManager:show(InfoMessage:new{
                                     timeout = 2,
@@ -720,7 +741,6 @@ local function getStatusMenu(self, touchmenu_instance)
                             local ok = U.isOk(result)
                             self:_invalidateProcess()
                             self:_cacheInvalidate()
-                            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
                             if ok then
                                 UIManager:show(InfoMessage:new{
                                     timeout = 2,
@@ -1144,7 +1164,7 @@ local function getAutomationMenu(self)
 					.. "should be running but isn't, it tries to start it again.\n"
 					.. "• When Wi-Fi disconnects, Syncthing stops automatically.\n"
 					.. "• Works on LAN-only networks without internet access.\n\n"
-					.. "Manually stopping Syncthing pauses the auto-start until you start it again.")
+					.. "Manually stopping Syncthing pauses auto-start for the rest of this session — it starts again next time you open KOReader. Turn this off to stop it permanently.")
 
     local charging_help = _("Automation rules above only fire if the device is plugged in and charging.\n\n"
                          .. "Useful when you have a large library and don't want an unexpected Wi-Fi join to drain your battery mid-read.")
@@ -1195,6 +1215,15 @@ local function getAutomationMenu(self)
             callback       = function(tmi)
                 self.auto_start_always = not self.auto_start_always
                 G_reader_settings:saveSetting("syncthing_auto_start_always", self.auto_start_always)
+                if self.auto_start_always then
+                    -- "enable --now": turning Autostart on clears any session
+                    -- pause and starts the daemon immediately if it is not
+                    -- already running, so the toggle means "on now", not "on
+                    -- at next launch".  runAutoStart still honours the charging
+                    -- gate and the network.
+                    U.setAutostartPaused(false)
+                    self:runAutoStart("autostart_enabled")
+                end
                 if tmi then tmi:updateItems() end
             end,
         },
@@ -1454,10 +1483,15 @@ local function getMaintenanceMenu(self, touchmenu_instance)
             keep_menu_open = true,
             hold_callback  = D.helpHold(_("Useful when reporting bugs. Shows a QR code you can scan with your phone to get the full diagnostic snapshot.")),
 callback = self.safe("Diagnostic snapshot", function()
-    local SEP = string.rep("─", 44)
     local lines = {}
     local function ln(s)  lines[#lines + 1] = s or "" end
-    local function sec()  ln(SEP) end
+    local function head(t)
+        if #lines > 0 then ln("") end
+        ln(t)
+    end
+    local function kv(k, v)
+        ln(string.format("  %-11s%s", k, tostring(v)))
+    end
 
     -- ── meta ────────────────────────────────────────────────────────────────
     local meta = {}
@@ -1489,25 +1523,28 @@ callback = self.safe("Diagnostic snapshot", function()
                        and full_id:sub(1, 7) or "not cached"
 
     -- ── Header ───────────────────────────────────────────────────────────────
-    ln("KOSyncthing+ " .. (meta.version or "?") .. "  |  " .. os.date("%Y-%m-%d %H:%M"))
-    sec()
-    ln("Plugin    " .. (meta.version or "?")
-     .. "       KOReader  " .. kr_version)
-    ln("Syncthing " .. (self:getCurrentVersion() or "not installed")
-     .. "      Platform  " .. platform)
-    ln("Running   " .. (self:isRunning() and "yes" or "no")
-     .. "           PID       " .. (pid and tostring(pid) or "none"))
-    ln("Port      " .. tostring(self.syncthing_port or "?")
-     .. "          Legacy    " .. (U.isLegacy()
-         and (G_reader_settings:readSetting("syncthing_legacy_version") or "?")
-         or  "off"))
-    ln("Syncthing: ID " .. short_id)
+    ln("KOSyncthing+ " .. (meta.version or "?") .. "  ·  " .. os.date("%Y-%m-%d %H:%M"))
+
+    -- ── System ───────────────────────────────────────────────────────────────
+    head("SYSTEM")
+    kv("Plugin",    meta.version or "?")
+    kv("Syncthing", self:getCurrentVersion() or "not installed")
+    kv("KOReader",  kr_version)
+    kv("Platform",  platform)
+    kv("Running",   (self:isRunning() and "yes" or "no")
+                    .. (pid and ("  (PID " .. tostring(pid) .. ")") or ""))
+    kv("Port",      tostring(self.syncthing_port or "?"))
+    kv("Legacy",    U.isLegacy()
+                    and (G_reader_settings:readSetting("syncthing_legacy_version") or "?")
+                    or  "off")
+    kv("Device ID", short_id)
 
     -- ── Binary & Process ─────────────────────────────────────────────────────
-    sec()
+    head("BINARY")
     local bin_path = U.getBinaryPath()
     if not util.pathExists(bin_path) then
-        ln("Binary    not found at: " .. bin_path)
+        kv("Arch", "not found")
+        ln("    " .. bin_path)
     else
         local arch = U.isELF(bin_path) and (self:getBinaryArch() or "unknown") or "NOT ELF"
         local size_str = ""
@@ -1517,18 +1554,18 @@ callback = self.safe("Diagnostic snapshot", function()
             if _ok and lfs2 then
                 local attr = lfs2.attributes(bin_path)
                 if attr and attr.size then
-                    size_str = "  " .. U.formatBytes(attr.size)
+                    size_str = "  (" .. U.formatBytes(attr.size) .. ")"
                 end
             end
         end
-        ln("Binary    " .. arch .. size_str)
+        kv("Arch", arch .. size_str)
         if arch == "NOT ELF" then
             local f = io.open(bin_path, "r")
             if f then
                 local preview = f:read(80)
                 f:close()
                 if preview then
-                    ln("  preview: " .. preview:gsub("\n", " "):gsub("%s+", " "):sub(1, 70))
+                    ln("    preview: " .. preview:gsub("\n", " "):gsub("%s+", " "):sub(1, 70))
                 end
             end
         end
@@ -1555,15 +1592,15 @@ callback = self.safe("Diagnostic snapshot", function()
                     for n in after:gmatch("%S+") do nums[#nums + 1] = n end
                     local ut = tonumber(nums[12]) or 0
                     local st = tonumber(nums[13]) or 0
-                    cpu = string.format("%.1f s", (ut + st) / 100)
+                    cpu = string.format("%.1fs", (ut + st) / 100)
                 end
             end
         end
-        ln("Process   " .. rss .. " RAM   " .. thr .. " threads   " .. cpu .. " CPU")
+        kv("Process", rss .. " RAM · " .. thr .. " threads · " .. cpu .. " CPU")
     end
 
-    -- ── Storage & Network ────────────────────────────────────────────────────
-    sec()
+    -- ── Storage ──────────────────────────────────────────────────────────────
+    head("STORAGE")
     local plugin_fs = util.getFilesystemType(U.plugin_path) or "unknown"
     local config_dir = U.getConfigDir()
     local config_fs  = (config_dir ~= U.plugin_path)
@@ -1572,10 +1609,8 @@ callback = self.safe("Diagnostic snapshot", function()
     if config_fs ~= plugin_fs then
         fs_str = "plugin=" .. plugin_fs .. " config=" .. config_fs
     end
-    local free_str = ""
     local free_plugin = U.getFreeSpace(U.plugin_path)
-    if free_plugin then free_str = "   " .. U.formatBytes(free_plugin) .. " free" end
-    ln("Filesystem  " .. fs_str .. free_str)
+    kv("Filesystem", fs_str .. (free_plugin and (" · " .. U.formatBytes(free_plugin) .. " free") or ""))
 
     local data_dir, dreason = U.getDataDir()
     local io_errs = 0
@@ -1588,69 +1623,74 @@ callback = self.safe("Diagnostic snapshot", function()
             lf:close()
         end
     end
-    local db_line = "Database    " .. tostring(data_dir) .. "  (" .. tostring(dreason) .. ")"
+    local db_meta = tostring(dreason)
     if data_dir ~= config_dir then
         local free2 = U.getFreeSpace(data_dir)
-        db_line = db_line .. (free2 and ("   " .. U.formatBytes(free2) .. " free") or "")
+        if free2 then db_meta = db_meta .. " · " .. U.formatBytes(free2) .. " free" end
     end
-    ln(db_line)
-    ln("  I/O errors: " .. tostring(io_errs) .. (io_errs > 0 and "  ⚠ DB on a failing filesystem" or ""))
+    kv("Database", db_meta)
+    ln("    " .. tostring(data_dir))
+    kv("I/O errors", tostring(io_errs) .. (io_errs > 0 and "  ⚠ DB on a failing filesystem" or ""))
 
+    -- ── Network ──────────────────────────────────────────────────────────────
+    head("NETWORK")
     local ip = U.getDeviceIP()
-    local net_str = "Network     " .. (U.loopbackIsUp() and "up" or "down ⚠")
-    if ip and ip ~= "127.0.0.1" then net_str = net_str .. "   " .. ip end
-    ln(net_str)
+    kv("Status", (U.loopbackIsUp() and "up" or "down ⚠")
+                 .. (ip and ip ~= "127.0.0.1" and (" · " .. ip) or ""))
     if Device:isKindle() then
         local sync_open = U.execOk(os.execute("iptables -C INPUT -p tcp --dport 22000 -j ACCEPT 2>/dev/null"))
         local disc_open = U.execOk(os.execute("iptables -C INPUT -p udp --dport 21027 -j ACCEPT 2>/dev/null"))
-        ln("  TCP 22000: " .. (sync_open and "open" or "blocked ⚠")
-        .. "   UDP 21027: " .. (disc_open and "open" or "blocked ⚠"))
+        kv("Ports", "TCP 22000 " .. (sync_open and "open" or "blocked ⚠")
+                    .. " · UDP 21027 " .. (disc_open and "open" or "blocked ⚠"))
     end
 
     -- ── Configuration ────────────────────────────────────────────────────────
+    head("CONFIG")
     local folders  = self:getFolders()  or {}
     local devices  = self:getDevices()  or {}
-    local gui_auth = ""
+    local gui_set  = true
     local config_xml = U.getConfigDir() .. "/config.xml"
     if util.pathExists(config_xml) then
         local f = io.open(config_xml, "r")
         if f then
             local content = f:read("*a"); f:close()
             if content and not (content:find("<user>") and content:find("<password>")) then
-                gui_auth = "   GUI auth: not set ⚠"
+                gui_set = false
             end
         end
     end
-    ln("Config      folders: " .. #folders .. "   devices: " .. #devices .. gui_auth)
+    kv("Folders", #folders)
+    kv("Devices", #devices)
+    kv("GUI auth", gui_set and "set" or "not set ⚠")
 
     -- ── Folders ──────────────────────────────────────────────────────────────
-    sec()
+    head(string.format("FOLDERS (%d)", #folders))
     local fh = self:getFolderHealth()
     local folder_states = fh and fh.folder_states or {}
-    ln(string.format("Folders (%d)%s  state       errors", #folders,
-        string.rep(" ", math.max(0, 16 - #tostring(#folders)))))
-    for _, folder in ipairs(folders) do
-        local fid   = folder["id"] or ""
-        local label = folder["label"] or fid
-        local fs    = folder_states[fid] or {}
-        local state = fs.paused and "paused"
-                   or (fs.state or "unknown")
-        local errcnt = fs.errors and "1" or "0"
-        local warn   = (fs.errors and not fs.errors_fixable) and "  ⚠ needs attention" or
-                       (fs.errors and fs.errors_fixable)     and "  (rescan-fixable)"  or ""
-        local label_col = label:sub(1, 20)
-        ln(string.format("  %-20s  %-10s  %s%s",
-            label_col, state, errcnt, warn))
-        if fs.error_texts then
-            for _, msg in ipairs(fs.error_texts) do
-                ln("    ! " .. msg:sub(1, 60))
+    if #folders == 0 then
+        ln("  (none)")
+    else
+        ln(string.format("  %-20s  %-10s  %s", "name", "state", "errors"))
+        for _, folder in ipairs(folders) do
+            local fid   = folder["id"] or ""
+            local label = folder["label"] or fid
+            local fs    = folder_states[fid] or {}
+            local state = fs.paused and "paused"
+                       or (fs.state or "unknown")
+            local errcnt = fs.errors and "1" or "0"
+            local warn   = (fs.errors and not fs.errors_fixable) and "  ⚠ needs attention" or
+                           (fs.errors and fs.errors_fixable)     and "  (rescan-fixable)"  or ""
+            ln(string.format("  %-20s  %-10s  %s%s", label:sub(1, 20), state, errcnt, warn))
+            if fs.error_texts then
+                for _, msg in ipairs(fs.error_texts) do
+                    ln("    ! " .. msg:sub(1, 60))
+                end
             end
         end
     end
 
     -- ── Syncthing log (last 5 entries via REST) ───────────────────────────────
-    sec()
-    ln("Syncthing log (last 5)")
+    head("SYNCTHING LOG (last 5)")
     if self:isRunning() then
         local log_resp = self:GET("system/log")
         local entries  = log_resp and log_resp.data and log_resp.data.messages or {}
@@ -1670,8 +1710,7 @@ callback = self.safe("Diagnostic snapshot", function()
     end
 
     -- ── Plugin log (last 5 WARN/ERROR) ───────────────────────────────────────
-    sec()
-    ln("Plugin log (last 5 WARN/ERROR)")
+    head("PLUGIN LOG (last 5 WARN/ERROR)")
     if not util.pathExists(log_path) then
         ln("  (no log file)")
     else
@@ -1690,7 +1729,6 @@ callback = self.safe("Diagnostic snapshot", function()
             ln("  (none)")
         else
             for _, l in ipairs(plugin_lines) do
-                -- trim timestamp prefix to save space: keep from [WARNING] onward
                 local short = l:match("%[W[^%]]+%].*") or l:match("%[E[^%]]+%].*") or l
                 ln("  " .. short:sub(1, 72))
             end
@@ -1698,14 +1736,12 @@ callback = self.safe("Diagnostic snapshot", function()
     end
 
     -- ── API errors ───────────────────────────────────────────────────────────
-    sec()
+    head("API ERRORS")
     local api_errors = self:getApiErrors()
     if not api_errors or #api_errors == 0 then
-        ln("API errors  none")
+        ln("  none")
     else
-        ln("API errors (" .. #api_errors .. ")")
-        local start = math.max(1, #api_errors - 4)
-        for i = start, #api_errors do
+        for i = math.max(1, #api_errors - 4), #api_errors do
             local e = api_errors[i]
             ln(string.format("  [%d] %s %s → %s",
                 i, e.endpoint or "?", e.method or "", e.error or e.status or "?"))
@@ -2019,8 +2055,16 @@ local function getAndroidMenu(self)
                 text    = ok and _("Rescan started.") or _("Rescan failed — is the Syncthing app running?"),
                 timeout = 2,
             })
+            -- A rescan only *starts* a sync; any conflict files are pulled
+            -- afterwards.  Merging right now would scan a disk that doesn't
+            -- have this round's conflicts yet, so defer it briefly to let the
+            -- rescan land.  runSyncCompleted is itself gated on the setting and
+            -- pcall-guarded, so an early/empty run is a harmless no-op, and
+            -- anything not yet present is caught on the next rescan.
             if ok and G_reader_settings:isTrue("syncthing_auto_merge_conflicts") then
-                self:onSyncthingSyncCompleted()
+                UIManager:scheduleIn(5, function()
+                    self:onSyncthingSyncCompleted()
+                end)
             end
             if tmi and tmi.updateItems then tmi:updateItems() end
         end),
@@ -2133,50 +2177,75 @@ local function getAndroidMenu(self)
         help_text      = _("Show plugin state, the connection scheme and port, and recent API errors, and copy them to the clipboard for a bug report."),
         keep_menu_open = true,
         callback = self.safe("Android diagnostic", function()
-            local L = {}
-            local function ln(s) L[#L + 1] = s end
-            ln("KOSyncthing+ — Android remote mode")
-            ln("Scheme:    " .. tostring(self._api_scheme))
-            ln("Port:      " .. tostring(self.syncthing_port))
-            ln("Reachable: " .. (self:isRunning() and "yes" or "no"))
-            local dev = self._cacheGet and self:_cacheGet("device_id") or nil
-            if dev then ln("Device ID: " .. tostring(dev)) end
-            local errs = (self.getApiErrors and self:getApiErrors()) or self._api_errors or {}
-            ln("Recent API errors: " .. tostring(#errs))
-            for i = math.max(1, #errs - 3), #errs do
-                local e = errs[i]
-                if e then ln("  - " .. tostring(e.path) .. ": " .. tostring(e.status)) end
+            local lines = {}
+            local function ln(s)  lines[#lines + 1] = s or "" end
+            local function head(t)
+                if #lines > 0 then ln("") end
+                ln(t)
             end
-            -- Folder errors with the real messages, classified, so a bug report
-            -- shows at a glance whether a rescan would help or the user must act.
+            local function kv(k, v)
+                ln(string.format("  %-11s%s", k, tostring(v)))
+            end
+
+            local meta = {}
+            do
+                local ok, m = pcall(dofile, U.plugin_path .. "_meta.lua")
+                if ok and type(m) == "table" then meta = m end
+            end
+
+            ln("KOSyncthing+ " .. (meta.version or "?") .. "  ·  " .. os.date("%Y-%m-%d %H:%M"))
+
+            head("CONNECTION")
+            kv("Mode",      "Android remote")
+            kv("Scheme",    tostring(self._api_scheme))
+            kv("Port",      tostring(self.syncthing_port))
+            kv("Reachable", self:isRunning() and "yes" or "no")
+            local dev = self._cacheGet and self:_cacheGet("device_id") or nil
+            if dev then kv("Device ID", tostring(dev)) end
+
+            head("API ERRORS")
+            local errs = (self.getApiErrors and self:getApiErrors()) or self._api_errors or {}
+            if #errs == 0 then
+                ln("  none")
+            else
+                for i = math.max(1, #errs - 3), #errs do
+                    local e = errs[i]
+                    if e then ln(string.format("  [%d] %s → %s", i, tostring(e.path), tostring(e.status))) end
+                end
+            end
+
+            head("FOLDERS")
             local fh = self:getFolderHealth()
             if fh and fh.folder_states then
-                local printed_hdr = false
+                local printed_any = false
                 for fid_d, fs in pairs(fh.folder_states) do
                     if fs.error_texts and #fs.error_texts > 0 then
-                        if not printed_hdr then ln("Folder errors:"); printed_hdr = true end
-                        ln("  " .. tostring(fid_d) .. " (" ..
-                           (fs.errors_fixable and "rescan-fixable" or "needs attention") .. "):")
+                        printed_any = true
+                        ln("  " .. tostring(fid_d) .. "  (" ..
+                           (fs.errors_fixable and "rescan-fixable" or "needs attention ⚠") .. ")")
                         for _, m in ipairs(fs.error_texts) do
-                            ln("    - " .. tostring(m))
+                            ln("    ! " .. tostring(m):sub(1, 60))
                         end
                     end
                 end
-                if not printed_hdr then
+                if not printed_any then
                     if (fh.errors or 0) > 0 then
-                        ln("Folder errors: " .. tostring(fh.errors) .. " (details unavailable)")
+                        ln("  " .. tostring(fh.errors) .. " error(s) (details unavailable)")
                     else
-                        ln("Folder errors: none")
+                        ln("  none")
                     end
                 end
+            else
+                ln("  (unavailable)")
             end
-            local text = table.concat(L, "\n")
+
+            local text = table.concat(lines, "\n")
             pcall(function()
                 if Device.input and Device.input.setClipboardText then
                     Device.input.setClipboardText(text)
                 end
             end)
-            UIManager:show(TextViewer:new{ title = _("Diagnostic info"), text = text })
+            UIManager:show(TextViewer:new{ title = _("Diagnostic info (also copied to clipboard)"), text = text })
         end),
     }
 

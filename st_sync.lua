@@ -585,7 +585,6 @@ _waitForIdle = function(self, start_time, on_ui_refresh, prev_state, on_finish, 
                 pct = pct,
                 need_bytes = need_bytes,
             }
-            UIManager:broadcastEvent(Event:new("SyncthingStateChanged"))
         end
     end
 

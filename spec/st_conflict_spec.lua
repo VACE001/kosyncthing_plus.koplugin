@@ -353,40 +353,6 @@ describe("autoMergeReadingProgress – failure paths", function()
         end)
     end)
 
-    it("broadcasts SyncthingStateChanged only when merged > 0", function()
-        local conflict = require("st_conflict")
-        local plugin   = makePlugin()
-        Mock.state.path_exists[ORIG] = true
-        Mock.state.path_exists[CONF] = true
-        withIO({
-            [ORIG] = '[\"percent_finished\"] = 0.80',
-            [CONF] = '[\"percent_finished\"] = 0.40',
-        }, nil, function()
-            conflict.autoMergeReadingProgress(plugin, { CONF })
-        end)
-        local found = false
-        for _, e in ipairs(Mock.state.broadcasts) do
-            if e.name == "SyncthingStateChanged" then found = true end
-        end
-        assert.is_true(found)
-    end)
-
-    it("does NOT broadcast when nothing is merged (all skipped)", function()
-        local conflict = require("st_conflict")
-        local plugin   = makePlugin()
-        withIO({}, nil, function()
-            -- Non-metadata file → skipped, merged = 0
-            conflict.autoMergeReadingProgress(plugin, {
-                "/books/cover.sync-conflict-20260101-ABC.jpg",
-            })
-        end)
-        local found = false
-        for _, e in ipairs(Mock.state.broadcasts) do
-            if e.name == "SyncthingStateChanged" then found = true end
-        end
-        assert.is_false(found)
-    end)
-
     it("calls _notifiers.notifyConflictsChanged when merged > 0", function()
         local conflict = require("st_conflict")
         local notified = false
@@ -795,5 +761,34 @@ describe("resolveConflict – conflict_is_mine (Syncthing moved our version asid
         assert.are.equal("ui/widget/confirmbox", w._widget)
         assert.is_not_nil(w.ok_text:find("Keep incoming"))
         assert.is_not_nil(w.cancel_text:find("Restore mine"))
+    end)
+
+    it("reading-progress conflict from this device shows oriented 'Keep incoming / Restore mine'", function()
+        -- A metadata (.sdr) conflict whose copy carries THIS device's short ID:
+        -- original_path holds the INCOMING progress, conflict_path holds OURS.
+        -- The old code had no conflict_is_mine branch here and would label this
+        -- "Mine (30%) / Theirs (80%)" — inverted, losing the user's progress.
+        local META_CONF = "/books/Novel.sdr/metadata.sync-conflict-20260201-120000-MYDEVIC.lua"
+        local META_ORIG = "/books/Novel.sdr/metadata.lua"
+        local conflict = require("st_conflict")
+        local plugin = makePlugin()
+        plugin.getDeviceId = function() return OWN_ID .. "-BONSGYC-REST" end
+        plugin.getDevices  = function() return {} end
+        Mock.state.path_exists[META_ORIG] = true
+        Mock.state.path_exists[META_CONF] = true
+        withIO({
+            [META_ORIG] = '["percent_finished"] = 0.30',  -- incoming (won the race)
+            [META_CONF] = '["percent_finished"] = 0.80',  -- ours (moved aside)
+        }, nil, function()
+            conflict.resolveConflict(plugin, META_CONF, nil)
+        end)
+        local w = Mock.state.shown[1]
+        assert.is_not_nil(w)
+        assert.are.equal("ui/widget/confirmbox", w._widget)
+        -- Oriented correctly: incoming 30% on "Keep incoming", ours 80% on "Restore mine".
+        assert.is_not_nil(w.ok_text:find("Keep incoming"))
+        assert.is_not_nil(w.ok_text:find("30%%"))
+        assert.is_not_nil(w.cancel_text:find("Restore mine"))
+        assert.is_not_nil(w.cancel_text:find("80%%"))
     end)
 end)
