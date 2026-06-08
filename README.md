@@ -2,10 +2,10 @@
 
 # KOSyncthing+
 
-[![Release](https://img.shields.io/badge/release-v1.1.4-blue)](https://github.com/d0nizam/kosyncthing_plus.koplugin/releases)
+[![Release](https://img.shields.io/badge/release-v1.1.5-blue)](https://github.com/d0nizam/kosyncthing_plus.koplugin/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Kindle%20%7C%20Kobo%20%7C%20Android-lightgrey)
-![Tests](https://img.shields.io/badge/tests-460%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-468%20passing-brightgreen)
 [![Star on GitHub](https://img.shields.io/badge/Star_on_GitHub-181717?logo=github&logoColor=white)](https://github.com/d0nizam/kosyncthing_plus.koplugin/stargazers)
 
 **Peer-to-peer file synchronisation integrated into KOReader.**
@@ -555,41 +555,39 @@ KOSyncthing+                                   ← top‑level entry
 │     • some paused → "Resume N paused folder(s)"
 │     • all paused → "Resume all N folders"
 │
-├── Status & conflicts (N)                   ← badge = number of conflicts
-│   │                                         also contains pending devices
-│   │                                         & folders when there are any
+├── Status & conflicts (N)  ▸                ← badge = number of conflicts;
+│   │                                          opens a submenu (dashboard + doors)
 │   │
-│   ├── [dashboard bullets]                  ← read‑only health summary:
-│   │   folder states, online devices, etc.
+│   ├── [dashboard bullets]                  ← read‑only health summary;
+│   │   folder states, online devices, etc.   tap‑and‑hold explains each line
 │   │
-│   ├── ── Pending ──                        ← only shown when at least one
-│   │   │                                     pending request exists
+│   ├── Database: …                          ← read‑only; shown only when the
+│   │                                          database was moved off problematic
+│   │                                          storage (see Troubleshooting)
+│   │
+│   ├── ── Pending ──                        ← only shown when a request is waiting
 │   │   ├── <device name>  (device)          ← tap: Accept or Ignore
 │   │   └── <folder label> (folder)          ← tap: Accept or Ignore
 │   │
-│   ├── <folder name>: Up to date / Syncing… / Paused
-│   │   │                                     live state from cached health
-│   │   └── Tap → ConfirmBox with three actions:
-│   │       [Pause / Resume]                 ← toggle; label changes instantly
-│   │       [Full details]                   ← opens scrollable info page
-│   │       [Remove folder]                  ← confirm; files on disk stay
+│   ├── Folders  ▸                           ← door; hidden when there are none
+│   │   └── <folder>: Up to date / Syncing… / Paused / Error
+│   │       └── tap → dialog:
+│   │           [Pause / Resume folder]
+│   │           [Rescan folder / Fix error]  ← "Fix error" only when a rescan helps
+│   │           [Full details]
+│   │           [Remove folder]              ← files on disk are kept
 │   │
-│   ├── <device name>: Connected / Last seen: …
-│   │   │                                     live connection status
-│   │   └── Tap → ConfirmBox with two actions:
-│   │       [Pause / Resume]                 ← toggle single device
-│   │       [Full details]                   ← ID, address, last-seen time
+│   ├── Devices  ▸                           ← door; hidden when there are none
+│   │   └── <device>: Connected / Last seen…
+│   │       └── tap → dialog:
+│   │           [Pause / Resume device]
+│   │           [Full details]
 │   │
-│   └── ── Conflicts (N) ──                  ← only shown when conflicts exist
-│       ├── Resolve all N conflicts…          ← bulk strategy dialog with
-│       │   three buttons:                     Auto‑merge progress (keeps
-│       │   Keep ALL mine / Use ALL theirs     higher reading progress for
-│       │                                      metadata sidecar files)
-│       ├── <conflict file 1>                ← tap for per‑file dialog:
-│       │   metadata with progress → Mine vs Theirs (percent)
-│       │   other files → timestamps + "which is newer"
-│       │   original missing → Keep as new file / Discard
-│       └── … and N more (use bulk resolve)   ← shown when > 50
+│   └── Conflicts (N)  ▸                      ← door; hidden when there are none
+│       ├── Resolve all N conflicts…          ← bulk dialog: Auto‑merge progress /
+│       │                                       Keep ALL mine / Use ALL theirs
+│       ├── <conflict file>                  ← tap → per‑file dialog
+│       └── …and N more (use bulk resolve)    ← shown when more than 50 conflicts exist
 │
 ├── Setup
 │   ├── Web GUI access                       ← shows URL + optional QR code
@@ -625,7 +623,10 @@ KOSyncthing+                                   ← top‑level entry
 ├── Automation
 │   ├── Show notifications                   ← on/off; when off no completion
 │   │   or conflict toasts appear
-│   ├── Autostart Syncthing         ← actively turns Wi‑Fi on when needed; stops when Wi‑Fi disconnects
+│   ├── Start mode                         ← When Wi‑Fi is on / Always
+│   │   ├── Off                            ← manual only; a Wi‑Fi drop won't stop it
+│   │   ├── When Wi‑Fi is on               ← follows Wi‑Fi; never forces it on
+│   │   └── Always (brings Wi‑Fi up)       ← keeps it running; turns Wi‑Fi on if needed
 │   ├── Periodic Quick Sync                  ← on/off; runs at chosen interval
 │   ├── Sync interval: X min  ·  next in Y min ← hidden when disabled;
 │   │   shows live countdown to next sync
@@ -669,7 +670,7 @@ KOSyncthing+                                   ← top‑level entry
 ## Automation
 
 <details>
-<summary><b>Notifications, autostart, periodic sync, auto-merge after sync, charging gate, dispatcher actions</b></summary>
+<summary><b>Notifications, start mode, periodic sync, auto-merge after sync, charging gate, dispatcher actions</b></summary>
 
 ### Show notifications
 
@@ -681,16 +682,28 @@ When **off** all background activity stays completely silent.
 
 Notifications are queued so two messages never overlap on screen.
 
-### Autostart Syncthing
+### Start mode
 
-Automatically start Syncthing and keep it running whenever possible.
-• Wi-Fi will be turned on automatically when needed.
-• If Wi-Fi cannot be turned on, Syncthing will not start.
-• A health-check timer runs every 60 seconds: if Syncthing
-should be running but isn't, it tries to start it again.
-• When Wi-Fi disconnects, Syncthing stops automatically.
-• Works also on LAN-only networks without internet access.
-• Manually stopping Syncthing pauses auto-start for the rest of this session — it starts again next time you open KOReader. Turn this off to stop it permanently.
+By default Syncthing has no start mode: it runs only when you start it by hand
+or run a **Quick Sync**. Start mode adds two optional automatic modes — pick
+one, or leave both off. They are mutually exclusive, and neither is selected
+by default.
+
+- **When Wi-Fi is on** — follows Wi-Fi without ever turning it on. Syncthing
+  starts when Wi-Fi is already on and stops when it goes off. Because the
+  radio is never forced on, an accidental drop is not fought and Wi-Fi is
+  left exactly as you set it. Manually stopping Syncthing keeps it stopped
+  until you start it again or restart KOReader.
+- **Always (brings Wi-Fi up)** — keeps Syncthing running whenever possible,
+  turning Wi-Fi on automatically when needed. If Wi-Fi cannot be turned on,
+  Syncthing will not start. A health-check timer runs every 60 seconds and
+  restarts the daemon if it should be running but isn't. When Wi-Fi goes off
+  Syncthing stops, then starts again when Wi-Fi returns. Manually stopping
+  Syncthing keeps it stopped until you start it again or restart KOReader.
+
+Tapping the selected mode again turns it off, returning to manual / Quick-Sync
+only. This replaces the old single **Autostart Syncthing** on/off toggle: an
+existing "on" setting maps to **Always**; "off" leaves no start mode selected.
 
 ### Periodic Quick Sync
 
@@ -827,7 +840,8 @@ A quick overview of what's available:
 - **Status** – `isRunning`, `getConflicts`, `getFolderHealth`, `getStatusHeader`, `getDeviceId`
 - **Control** – `start`, `stop`, `quickSync`, `toggle`, `pauseAllFolders`, `resumeAllFolders`
 - **Conflict resolution** – `resolveAllConflicts` (keep_local / use_remote / auto_merge), `resolveConflictByPath`
-- **Information** – `getFolders`, `getDevices`, `getPendingDevices`, `getPendingFolders`, `getConflictsDetailed`, `getFolderIgnore`, `setFolderIgnore`
+- **Information** – `getFolders`, `getDevices`, `getPendingDevices`, `getPendingFolders`, `getConflictsDetailed`, `getFolderIgnore`, `setFolderIgnore`, `getGUIPort`, `getResourceProfile`, `getNetworkAccess`, `isLegacyMode`, `getLegacyVersion`
+- **Periodic sync** – `isPeriodicSyncEnabled`, `getPeriodicSyncInterval`, `getNextPeriodicSyncAt`, `setPeriodicSyncEnabled`, `setPeriodicSyncInterval`, `runPeriodicSyncNow`
 - **Proxied REST call** – `apiCall(endpoint, method, body)` — talk to Syncthing without ever seeing the API key
 - **Events** – `onStatusChange` / `offStatusChange` (custom listeners) and KOReader global events (`SyncthingSyncCompleted`, `SyncthingConflictDetected`)
 - **Utilities** – `formatBytes`, `formatTime`, `isValidDeviceID`
@@ -857,7 +871,7 @@ All listener callbacks are wrapped in `pcall` — a broken listener will never c
 |----------|------|
 | Bulgarian | `locale/bg.po` |
 
-The master template for all translatable strings is `locale/syncthing.pot`. To contribute a new language or improve an existing one, edit the relevant `.po` file and open a pull request.
+The master template for all translatable strings is `locale/syncthing.pot`. To contribute a new language or improve an existing one, edit the relevant `.po` file and open a pull request. Count-dependent strings use plural forms (`N_`); when translating one, fill in each plural form your language needs (`msgstr[0]`, `msgstr[1]`, …).
 
 ---
 
@@ -873,7 +887,8 @@ All settings are stored in KOReader's `G_reader_settings` under the `syncthing_*
 | `syncthing_port` | string | `"8384"` | Web GUI port |
 | `syncthing_gui_user` | string | `"syncthing"` | Web GUI username |
 | `syncthing_gui_password` | string | `nil` | Web GUI password (stored locally only) |
-| `syncthing_auto_start_always` | bool | `false` | Autostart Syncthing (actively turns Wi‑Fi on when needed, stops when Wi‑Fi disconnects) |
+| `syncthing_autostart_mode` | string | `"off"` | Start mode: `"off"` = none selected (manual / Quick Sync only; default), `"wifi"` = When Wi-Fi is on, `"always"` = Always (brings Wi-Fi up) |
+| `syncthing_auto_start_always` | bool | — | Legacy pre-mode flag; migrated to `syncthing_autostart_mode` and no longer read |
 | `syncthing_auto_start_charging` | bool | `false` | Gate all automation on charging state |
 | `syncthing_notifications_enabled` | bool | `true` | Enable toast notifications |
 | `syncthing_resource_profile` | string | `"low"` | `"low"` or `"normal"` |
@@ -884,9 +899,13 @@ All settings are stored in KOReader's `G_reader_settings` under the `syncthing_*
 | `syncthing_periodic_sync_enabled` | bool | `false` | Enable periodic Quick Sync |
 | `syncthing_periodic_sync_interval_min` | number | `30` | Periodic sync interval (minutes, 1–1440) |
 | `syncthing_auto_merge_conflicts` | bool | `false` | Auto-merge reading-progress conflicts after every Quick Sync (v1.1.1+) |
+| `syncthing_conflict_cache_ttl` | number | `nil` | Optional override (seconds) for the conflict-cache TTL; built-in default is 60s with conflicts, 600s otherwise |
 | `syncthing_settings_version` | number | — | Internal migration counter; do not edit |
-| `syncthing_password_dialog_seen` | bool | — | Suppresses the first-launch password prompt |
+| `syncthing_password_configured` | bool | — | Internal: whether a GUI password has been set; do not edit |
+| `syncthing_password_skip_at` | number | — | Internal: timestamp when the password prompt was last skipped; do not edit |
 | `syncthing_was_running` | bool | — | Internal flag: remembers daemon state across suspend/resume; do not edit |
+| `syncthing_data_dir` | string | `nil` | Internal: relocated database directory when the default storage fails the disk-I/O probe; do not edit |
+| `syncthing_data_notice_seen` | bool | — | Internal: suppresses the one-time database-relocation notice; do not edit |
 | `syncthing_use_legacy` | bool | `false` | Legacy mode enabled; set via **Setup → Legacy Syncthing** |
 | `syncthing_legacy_version` | string | `"v1.27.12"` | Selected legacy binary version tag; retained across disable so re-enable is one tap |
 | `syncthing_legacy_installed_version` | string | — | Version of the `syncthing-legacy` binary actually on disk; written after a successful download, checked before start so a version/file mismatch is refused |
@@ -949,7 +968,7 @@ kosyncthing_plus.koplugin/
 │                        so the shared require() module cache can't collide with
 │                        another plugin's own insert_menu.lua
 │
-├── syncthing_i18n.lua   Gettext loader
+├── syncthing_i18n.lua   Gettext loader (singular `_` + plural `N_`)
 │
 ├── cacert.pem           Mozilla CA bundle (required on Kobo, no system CA store)
 │
@@ -1021,6 +1040,12 @@ kosyncthing_plus.koplugin/
 │                        file and directory operations. Returns (true) on success or
 │                        (false, errmsg) on failure. Eliminates bugs where code assumes
 │                        os.remove/os.rename/io.open always succeed on FAT/FUSE.
+│
+│
+├── st_guard.lua         Named resource-lease manager: each lifecycle flow
+│                        (standby/wakelock, Wi-Fi) takes a named lease with one
+│                        idempotent release point, so a resource is freed exactly
+│                        once no matter which callback path finishes first
 │
 │
 ├── st_health.lua        getStatusHeader() with sync progress percentage;

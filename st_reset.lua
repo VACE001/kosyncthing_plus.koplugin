@@ -86,7 +86,7 @@ local function _wipe(self)
     self.syncthing_port         = "8384"
 
     self.auto_start_charging    	= false
-    self.auto_start_always      	= false
+    self.autostart_mode         	= "off"
     self.notifications_enabled  	= true   -- default is true (main.lua init); false was wrong (BUG-26)
     self.resource_profile       	= "low"
     self.network_access         	= "lan"

@@ -96,21 +96,20 @@ gates.hasApiError = {
 }
 
 gates.notAutoStart = {
-    check  = function(self) return not self.auto_start_always end,
+    check  = function(self) return self.autostart_mode ~= "always" end,
     reason = function()
-        return _("Periodic Quick Sync is redundant when \"Autostart Syncthing\" is on"
-              .. " — Syncthing is already running continuously.\n\n"
-              .. "Disable \"Autostart Syncthing\" first if you want Periodic Quick Sync instead.")
+        return _("Periodic Quick Sync is redundant when Autostart is set to \"Always\": "
+              .. "Syncthing is already running continuously.\n\n"
+              .. "Set Autostart to \"Off\" or \"When Wi-Fi is on\" if you want Periodic Quick Sync instead.")
     end,
 }
 
 gates.hasAutomation = {
-    -- Checks the real automation fields.
-    -- The old code referenced auto_quicksync_wifi which no longer exists.
-    check  = function(self) return self.auto_start_always or self.periodic_sync_enabled end,
+    -- Checks the real automation fields (any autostart mode, or periodic sync).
+    check  = function(self) return self:_autoStartEnabled() or self.periodic_sync_enabled end,
     reason = function()
         return _("This setting only applies when an automation rule is active.\n\n"
-              .. "Enable \"Autostart Syncthing\" or \"Periodic Quick Sync\" first.")
+              .. "Turn on Autostart (\"When Wi-Fi is on\" or \"Always\") or \"Periodic Quick Sync\" first.")
     end,
 }
 

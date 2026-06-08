@@ -82,7 +82,12 @@ function Mock.install()
     end
 
     package.preload["syncthing_i18n"] = function()
-        return { gettext = identity }
+        return {
+            gettext = identity,
+            ngettext = function(singular, plural, n)
+                return (n == 1) and singular or plural
+            end,
+        }
     end
 
     package.preload["gettext"] = function()

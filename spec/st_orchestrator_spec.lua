@@ -25,7 +25,9 @@ local function makePlugin(overrides)
         _quick_sync_active     = false,
         _silentStart           = nil,
         _was_running_before_suspend = false,
-        auto_start_always      = false,
+        autostart_mode         = overrides.autostart_mode or "off",
+        _autoStartEnabled      = function(self) return self.autostart_mode == "wifi" or self.autostart_mode == "always" end,
+        _autoStartForcesWifi   = function(self) return self.autostart_mode == "always" end,
         next_count             = 0,
         wifi_done_count        = 0,
         stop_calls             = 0,
@@ -110,6 +112,7 @@ describe("runAutoStart", function()
         Mock.state.wifi_online = false
         local orch = freshOrchestrator()
         local plugin = makePlugin()
+        plugin.autostart_mode = "always"
         orch.runAutoStart(plugin, "reason", nil)
         -- NetworkMgr:enableWifi fires the callback synchronously in the mock;
         -- the callback sees wifi_online=false so it calls the fallback cb, not start.
@@ -154,9 +157,32 @@ describe("runAutoStart", function()
         local orch = freshOrchestrator()
         local cb_called = false
         local plugin = makePlugin()
+        plugin.autostart_mode = "always"
         orch.runAutoStart(plugin, "reason", function() cb_called = true end)
         assert.are.equal(0, plugin.start_calls)
         Mock.state.wifi_connected = nil
+    end)
+
+    -- Mode "wifi": follow Wi-Fi, but never turn it on.
+    it('"wifi" mode does NOT enable Wi-Fi when offline (no-op, no start)', function()
+        Mock.state.wifi_online      = false
+        Mock.state.wifi_connected   = false
+        local orch = freshOrchestrator()
+        local cb_called = false
+        local plugin = makePlugin({ autostart_mode = "wifi" })
+        orch.runAutoStart(plugin, "reason", function() cb_called = true end)
+        assert.are.equal(0, Mock.state.wifi_enable_calls)
+        assert.are.equal(0, plugin.start_calls)
+        assert.is_true(cb_called)
+    end)
+
+    it('"wifi" mode starts (without enabling Wi-Fi) when already online', function()
+        Mock.state.wifi_online = true
+        local orch = freshOrchestrator()
+        local plugin = makePlugin({ autostart_mode = "wifi" })
+        orch.runAutoStart(plugin, "reason", nil)
+        assert.are.equal(0, Mock.state.wifi_enable_calls)
+        assert.are.equal(1, plugin.start_calls)
     end)
 end)
 
@@ -500,26 +526,26 @@ describe("runNetworkConnected", function()
         assert.is_false(plugin._was_running_before_suspend)
     end)
 
-    it("calls runAutoStart when auto_start_always is true", function()
+    it("calls runAutoStart when autostart mode is enabled", function()
         Mock.state.wifi_online = true
         local orch = freshOrchestrator()
         local plugin = makePlugin()
-        plugin.auto_start_always = true
+        plugin.autostart_mode = "always"
         orch.runNetworkConnected(plugin)
         assert.are.equal(1, plugin.start_calls)
     end)
 
-    it("does nothing when auto_start_always=false and was_running=false", function()
+    it("does nothing when autostart is off and was_running=false", function()
         Mock.state.wifi_online = true
         local orch = freshOrchestrator()
         local plugin = makePlugin()
-        plugin.auto_start_always = false
+        plugin.autostart_mode = "off"
         orch.runNetworkConnected(plugin)
         assert.are.equal(0, plugin.start_calls)
     end)
 
     -- ── Autostart survives automatic network disconnect/reconnect ───────────
-    it("auto_start_always: restarts after automatic network-loss stop (Autostart not paused)", function()
+    it("enabled mode: restarts after automatic network-loss stop (Autostart not paused)", function()
         -- Simulate the full cycle:
         --   network drops  → runNetworkDisconnected → stop(silent=true) → Autostart must NOT be paused
         --   network returns → runNetworkConnected   → runAutoStart      → Syncthing starts again
@@ -537,7 +563,7 @@ describe("runNetworkConnected", function()
                 if cb then cb() end
             end,
         })
-        plugin.auto_start_always = true
+        plugin.autostart_mode = "always"
         plugin._running = true
 
         -- Step 1: network disconnect → automatic stop
@@ -742,5 +768,67 @@ describe("runSyncCompleted", function()
             orch.runSyncCompleted(p, {})
         end)
         assert.are.equal(0, #Mock.state.notifications)
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- Suite: runNetworkDisconnected (mode-gated stop)
+-- ---------------------------------------------------------------------------
+
+describe("runNetworkDisconnected (mode-gated)", function()
+    before_each(function() Mock.reset() end)
+
+    it('"off" mode does NOT stop on Wi-Fi disconnect', function()
+        local orch = freshOrchestrator()
+        local plugin = makePlugin({ autostart_mode = "off", isRunning = function() return true end })
+        orch.runNetworkDisconnected(plugin)
+        assert.are.equal(0, plugin.stop_calls)
+    end)
+
+    it('"wifi" mode stops on Wi-Fi disconnect', function()
+        local orch = freshOrchestrator()
+        local plugin = makePlugin({ autostart_mode = "wifi", isRunning = function() return true end })
+        orch.runNetworkDisconnected(plugin)
+        assert.are.equal(1, plugin.stop_calls)
+    end)
+
+    it('"always" mode stops on Wi-Fi disconnect', function()
+        local orch = freshOrchestrator()
+        local plugin = makePlugin({ autostart_mode = "always", isRunning = function() return true end })
+        orch.runNetworkDisconnected(plugin)
+        assert.are.equal(1, plugin.stop_calls)
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- Suite: runCharging (mode-gated autostart on charging)
+-- ---------------------------------------------------------------------------
+
+describe("runCharging (mode-gated)", function()
+    before_each(function() Mock.reset() end)
+
+    it('"off" mode does nothing when charging starts', function()
+        Mock.state.wifi_online = true
+        local orch = freshOrchestrator()
+        local plugin = makePlugin({ autostart_mode = "off" })
+        orch.runCharging(plugin)
+        assert.are.equal(0, plugin.start_calls)
+    end)
+
+    it('"wifi" mode runs autostart on charging (online, no Wi-Fi forced)', function()
+        Mock.state.wifi_online = true
+        local orch = freshOrchestrator()
+        local plugin = makePlugin({ autostart_mode = "wifi" })
+        orch.runCharging(plugin)
+        assert.are.equal(0, Mock.state.wifi_enable_calls)
+        assert.are.equal(1, plugin.start_calls)
+    end)
+
+    it('"always" mode runs autostart on charging', function()
+        Mock.state.wifi_online = true
+        local orch = freshOrchestrator()
+        local plugin = makePlugin({ autostart_mode = "always" })
+        orch.runCharging(plugin)
+        assert.are.equal(1, plugin.start_calls)
     end)
 end)

@@ -218,6 +218,8 @@ local ok, err = Syncthing.control.resolveConflictByPath(
 | `"use_remote"` | Replace originals with conflict copies. Returns `kept_remote`, `skipped`, and `failed`. |
 | `"auto_merge"` | Keep higher reading progress for metadata; skip non-metadata. Returns all five fields. |
 
+> **Note:** `resolveConflictByPath` accepts only `"keep_local"` and `"use_remote"`. Passing `"auto_merge"` returns an `"Unknown strategy"` error — to auto-merge by reading progress use `resolveAllConflicts("auto_merge")`, which keeps the higher progress and skips non-metadata files automatically.
+
 After any conflict resolution:
 
 - Caches are invalidated automatically

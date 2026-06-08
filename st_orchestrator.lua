@@ -15,6 +15,7 @@ local logger      = require("logger")
 local time 		  = require("ui/time")
 local T           = require("ffi/util").template
 local _           = require("syncthing_i18n").gettext
+local N_          = require("syncthing_i18n").ngettext
 local Guard       = require("st_guard")
 local U           = require("st_utils")
 
@@ -87,8 +88,8 @@ local function runAutoStart(self, reason, callback)
 
     if hasNetwork() then
         do_start()
-    else
-        -- Try to bring Wi-Fi up; if it fails, just leave.
+    elseif self:_autoStartForcesWifi() then
+        -- Only the "always" mode may bring Wi-Fi up itself; if it fails, leave.
         NetworkMgr:enableWifi(function()
             if hasNetwork() then
                 do_start()
@@ -96,6 +97,11 @@ local function runAutoStart(self, reason, callback)
                 safeCallback(callback, reason)
             end
         end, false)
+    else
+        -- "wifi" mode (and any restore in a non-forcing mode) follows Wi-Fi but
+        -- never turns it on: wait for the network to come up on its own
+        -- (runNetworkConnected starts us then).
+        safeCallback(callback, reason)
     end
 end
 
@@ -476,7 +482,7 @@ local function runResumeRestore(self)
         self._was_running_before_suspend = false
     end
     -- When offline at resume we intentionally DO NOT clear the flag here.
-    -- runNetworkConnected() calls runAutoStart when auto_start_always is set;
+    -- runNetworkConnected() calls runAutoStart when an autostart mode is set;
     -- for the "was running" case it is runResumeRestore's job, but only once
     -- Wi-Fi is actually available.  The flag is also cleared by runSuspendStop
     -- on the next suspend, so it cannot accumulate across cycles.
@@ -491,17 +497,22 @@ local function runNetworkConnected(self)
         runAutoStart(self, "resume_restore_wifi_late")
         return
     end
-    if self.auto_start_always then
+    if self:_autoStartEnabled() then
         runAutoStart(self, "network_connected")
     end
 end
 
 local function runNetworkDisconnected(self)
+    -- Only auto-stop when the active mode actually couples Syncthing to Wi-Fi
+    -- ("wifi"/"always").  In "off" the user manages Syncthing by hand, so a
+    -- Wi-Fi-off (by them, or KOReader's inactivity/suspend teardown) must NOT
+    -- stop a daemon they started manually.
+    if not self:_autoStartEnabled() then return end
     runAutoStop(self, "network")
 end
 
 local function runCharging(self)
-    if self.auto_start_always then
+    if self:_autoStartEnabled() then
         runAutoStart(self, "charging")
     end
 end
@@ -542,7 +553,7 @@ local function runSyncCompleted(self, _event)
     if failed > 0 then
         self:showNotification(T(_("Auto-merge reading progress: %1 merged, %2 failed."), merged, failed), 5)
     elseif merged > 0 then
-        self:showNotification(T(_("Auto-merged reading progress: %1 conflict(s)."), merged), 5)
+        self:showNotification(T(N_("Auto-merged reading progress: %1 conflict.", "Auto-merged reading progress: %1 conflicts.", merged), merged), 5)
     end
 end
 

@@ -40,6 +40,7 @@ local JSON = _rapidjson_ok and _rapidjson or require("json")
 local T           = ffiutil.template
 
 local _    = require("syncthing_i18n").gettext
+local N_   = require("syncthing_i18n").ngettext
 local U    = require("st_utils")
 local D    = require("st_disabled")
 local Settings = require("st_settings")
@@ -116,15 +117,15 @@ local function buildConflictsItems(self, conflicts)
                      .. "Keep ALL mine: discard every conflict copy, keep this device's version for each.\n"
                      .. "Use ALL theirs: replace every local file with the conflict copy.")
     table.insert(items, {
-        text           = T(_("Resolve all %1 conflicts…"), #conflicts),
+        text           = T(N_("Resolve the conflict…", "Resolve all %1 conflicts…", #conflicts), #conflicts),
         help_text      = bulk_help,
         hold_callback  = D.helpHold(bulk_help),
         keep_menu_open = true,
         callback       = self.safe("Bulk resolve", function(tmi)
             UIManager:show(ConfirmBox:new{
-                text = T(_(
-                    "Resolve all %1 conflicts.\n\n"
-                    .. "Choose a strategy:"), #conflicts),
+                text = T(N_(
+                    "Resolve the conflict.\n\nChoose a strategy:",
+                    "Resolve all %1 conflicts.\n\nChoose a strategy:", #conflicts), #conflicts),
                 ok_text     = _("Auto-merge progress"),
                 cancel_text = _("Cancel"),
                 other_buttons = {{
@@ -492,7 +493,7 @@ local function getStatusMenu(self, touchmenu_instance)
                     local need_items = tonumber(status["needTotalItems"]) or 0
                     local need_data  = tonumber(status["needBytes"])      or 0
                     local need_str   = need_items > 0
-                        and T(_("%1 items (%2)"), need_items, util.getFriendlySize(need_data))
+                        and T(N_("%1 item (%2)", "%1 items (%2)", need_items), need_items, util.getFriendlySize(need_data))
                         or  _("Nothing — fully synced")
                     -- Read is_paused from live folder health so the dialog
                     -- reflects the real current state (not the stale _folder
@@ -1156,15 +1157,17 @@ local function getAutomationMenu(self)
                         .. "Notifications are silent, appear at the top of the screen, and vanish after a few seconds.\n\n"
                         .. "Manual actions always show feedback directly in the menu, regardless of this setting.")
 	-- Autostart Syncthing
-    local always_help = _(
-					"Automatically start Syncthing and keep it running whenever possible.\n\n"
-					.. "• Wi-Fi will be turned on automatically when needed.\n"
-					.. "• If Wi-Fi cannot be turned on, Syncthing will not start.\n"
-					.. "• A health-check timer runs every 60 seconds: if Syncthing "
-					.. "should be running but isn't, it tries to start it again.\n"
-					.. "• When Wi-Fi disconnects, Syncthing stops automatically.\n"
-					.. "• Works on LAN-only networks without internet access.\n\n"
-					.. "Manually stopping Syncthing pauses auto-start for the rest of this session — it starts again next time you open KOReader. Turn this off to stop it permanently.")
+    local always_help = _("Syncthing stays running whenever possible.\n\n"
+        .. "Wi-Fi is turned on automatically when needed; if it cannot be turned on, Syncthing does not start. "
+        .. "A check every 60 seconds restarts Syncthing if it should be running but isn't. "
+        .. "When Wi-Fi goes off it stops, then starts again when Wi-Fi returns.\n\n"
+        .. "Stopping Syncthing by hand keeps it stopped until you start it again or restart KOReader.")
+
+    local autostart_help = _("Choose how Syncthing runs.")
+
+    local wifi_help = _("Syncthing follows Wi-Fi, without ever turning it on.\n\n"
+        .. "It starts when Wi-Fi is already on and stops when Wi-Fi goes off; an accidental drop is not fought, and Wi-Fi is left exactly as you set it.\n\n"
+        .. "Stopping Syncthing by hand keeps it stopped until you start it again or restart KOReader.")
 
     local charging_help = _("Automation rules above only fire if the device is plugged in and charging.\n\n"
                          .. "Useful when you have a large library and don't want an unexpected Wi-Fi join to drain your battery mid-read.")
@@ -1204,28 +1207,40 @@ local function getAutomationMenu(self)
         },
         {
             text_func = function()
-                return self.auto_start_always
-                    and _("Autostart Syncthing ✓")
-                    or  _("Autostart Syncthing")
-            end,
-            help_text      = always_help,
-            keep_menu_open = true,
-            checked_func   = function() return self.auto_start_always end,
-            hold_callback  = D.helpHold(always_help),
-            callback       = function(tmi)
-                self.auto_start_always = not self.auto_start_always
-                G_reader_settings:saveSetting("syncthing_auto_start_always", self.auto_start_always)
-                if self.auto_start_always then
-                    -- "enable --now": turning Autostart on clears any session
-                    -- pause and starts the daemon immediately if it is not
-                    -- already running, so the toggle means "on now", not "on
-                    -- at next launch".  runAutoStart still honours the charging
-                    -- gate and the network.
-                    U.setAutostartPaused(false)
-                    self:runAutoStart("autostart_enabled")
+                if self.autostart_mode == "always" then
+                    return T(_("Start mode: %1"), _("Always (brings Wi-Fi up)"))
+                elseif self.autostart_mode == "wifi" then
+                    return T(_("Start mode: %1"), _("When Wi-Fi is on"))
                 end
-                if tmi then tmi:updateItems() end
+                return _("Start mode")
             end,
+            help_text      = autostart_help,
+            keep_menu_open = true,
+            hold_callback  = D.helpHold(autostart_help),
+            sub_item_table = {
+                {
+                    text           = _("When Wi-Fi is on"),
+                    help_text      = wifi_help,
+                    keep_menu_open = true,
+                    checked_func   = function() return self.autostart_mode == "wifi" end,
+                    hold_callback  = D.helpHold(wifi_help),
+                    callback       = function(tmi)
+                        self:_setAutostartMode(self.autostart_mode == "wifi" and "off" or "wifi")
+                        if tmi then tmi:updateItems() end
+                    end,
+                },
+                {
+                    text           = _("Always (brings Wi-Fi up)"),
+                    help_text      = always_help,
+                    keep_menu_open = true,
+                    checked_func   = function() return self.autostart_mode == "always" end,
+                    hold_callback  = D.helpHold(always_help),
+                    callback       = function(tmi)
+                        self:_setAutostartMode(self.autostart_mode == "always" and "off" or "always")
+                        if tmi then tmi:updateItems() end
+                    end,
+                },
+            },
         },
         {
             text           = _("Periodic Quick Sync"),
@@ -2101,8 +2116,8 @@ local function getAndroidMenu(self)
             local h = self:getFolderHealth()
             local paused = h and h.paused or 0
             local total  = h and h.total or 0
-            if paused > 0 then return T(_("Resume %1 paused folder(s)"), paused) end
-            return total > 0 and T(_("Pause all %1 folders"), total) or _("Pause all folders")
+            if paused > 0 then return T(N_("Resume %1 paused folder", "Resume %1 paused folders", paused), paused) end
+            return total > 0 and T(N_("Pause the folder", "Pause all %1 folders", total), total) or _("Pause all folders")
         end,
         help_text = _("Pause all folders to stop syncing temporarily (saves battery and data), or resume them again."),
         keep_menu_open = true,
@@ -2436,13 +2451,13 @@ local function addToMainMenu(self, menu_items)
                 local n_total  = h and h.total  or 0
                 if n_paused > 0 then
                     if n_paused == n_total then
-                        return T(_("Resume all %1 folders"), n_total)
+                        return T(N_("Resume the folder", "Resume all %1 folders", n_total), n_total)
                     else
-                        return T(_("Resume %1 paused folder(s)"), n_paused)
+                        return T(N_("Resume %1 paused folder", "Resume %1 paused folders", n_paused), n_paused)
                     end
                 end
                 return n_total > 0
-                    and T(_("Pause all %1 folders"), n_total)
+                    and T(N_("Pause the folder", "Pause all %1 folders", n_total), n_total)
                     or  _("Pause all folders")
             end,
             help_text      = pause_help,
@@ -2488,7 +2503,11 @@ local function addToMainMenu(self, menu_items)
         {
             text_func = function()
                 local parts = {}
-                if self.auto_start_always then table.insert(parts, _("always")) end
+                if self.autostart_mode == "always" then
+                    table.insert(parts, _("always"))
+                elseif self.autostart_mode == "wifi" then
+                    table.insert(parts, _("on Wi-Fi"))
+                end
                 if self.periodic_sync_enabled then table.insert(parts, _("periodic")) end
                 return #parts > 0
                     and T(_("Automation: %1"), table.concat(parts, ", "))

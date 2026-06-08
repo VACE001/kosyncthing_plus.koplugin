@@ -241,6 +241,7 @@ local ALL_SETTINGS_KEYS = {
     "syncthing_gui_password",
     "syncthing_auto_start_charging",
     "syncthing_auto_start_always",
+    "syncthing_autostart_mode",
     "syncthing_password_dialog_seen",
     "syncthing_conflict_cache_ttl",
     "syncthing_notifications_enabled",

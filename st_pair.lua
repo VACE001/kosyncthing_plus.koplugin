@@ -20,6 +20,7 @@ local time 		  = require("ui/time")
 local JSON        = require("json")
 local util 		  = require("util")
 local _           = require("syncthing_i18n").gettext
+local N_          = require("syncthing_i18n").ngettext
 local T           = require("ffi/util").template
 local Device      = require("device")
 
@@ -346,13 +347,14 @@ local function acceptDevice(self, device_id, device_name, touchmenu_instance)
                 if failed > 0 then
                     UIManager:show(InfoMessage:new{
                         icon = "notice-warning",
-                        text = T(_("%1 added to %2 folder(s). %3 folder(s) could not be updated."),
-                                 device_name, added, failed),
+                        text = T(N_("%1 added to %2 folder.", "%1 added to %2 folders.", added), device_name, added)
+                            .. " " ..
+                            T(N_("%1 folder could not be updated.", "%1 folders could not be updated.", failed), failed),
                     })
                 else
                     UIManager:show(InfoMessage:new{
                         timeout = 3,
-                        text = T(_("%1 added and shared with all %2 folder(s)."), device_name, added),
+                        text = T(N_("%1 added and shared with %2 folder.", "%1 added and shared with all %2 folders.", added), device_name, added),
                     })
                 end
             end,

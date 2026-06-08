@@ -296,6 +296,100 @@ def collect_from_sources(root):
     return out
 
 
+def _read_concat(src, k):
+    """From index k, read a run of `"..".."..."` string literals separated by
+    `..` (whitespace allowed). Returns (joined_value or None, index_after)."""
+    n = len(src)
+    parts = []
+    while True:
+        while k < n and src[k] in " \t\r\n":
+            k += 1
+        val, j = _read_string_literal(src, k)
+        if val is None:
+            return (("".join(parts)) if parts else None), k
+        parts.append(val)
+        k = j
+        while k < n and src[k] in " \t\r\n":
+            k += 1
+        if src[k:k + 2] == "..":
+            k += 2
+            continue
+        return "".join(parts), k
+
+
+def extract_plural_calls(src):
+    """Yield (singular, plural, lineno) for every `N_( "..", ".." )` call in
+    `src` (comment-stripped). String literals are skipped so an `N_(` inside a
+    string is never mistaken for a call; each argument may be `..`-concatenated."""
+    i, n = 0, len(src)
+    while i < n:
+        c = src[i]
+        if c in ('"', "'") or re.match(r"\[=*\[", src[i:]):
+            val, j = _read_string_literal(src, i)
+            if val is not None and j > i:
+                i = j
+                continue
+            i += 1
+            continue
+        if c == "N" and src[i + 1:i + 3] == "_(":
+            prev = src[i - 1] if i > 0 else ""
+            if not (prev.isalnum() or prev in "_.:"):
+                lineno = src.count("\n", 0, i) + 1
+                a1, k = _read_concat(src, i + 3)
+                if a1 is not None and k < n and src[k] == ",":
+                    a2, k = _read_concat(src, k + 1)
+                    if a2 is not None and k < n and src[k] in ",)":
+                        yield a1, a2, lineno
+                        i = k + 1
+                        continue
+        i += 1
+
+
+def collect_plurals(root):
+    """Scan runtime .lua files; return ({singular: plural}, {singular: ['f:l', ...]})
+    for every N_() plural call."""
+    pmap, prefs = {}, {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for fn in sorted(filenames):
+            if not fn.endswith(".lua"):
+                continue
+            path = os.path.join(dirpath, fn)
+            rel = os.path.relpath(path, root)
+            with open(path, encoding="utf-8") as fh:
+                src = strip_lua_comments(fh.read())
+            for sing, plur, line in extract_plural_calls(src):
+                if not sing:
+                    continue
+                pmap[sing] = plur
+                prefs.setdefault(sing, []).append((rel, line))
+    out = {}
+    for sing, occ in prefs.items():
+        occ = sorted(set(occ), key=lambda t: (t[0], t[1]))
+        out[sing] = ["%s:%d" % (f, l) for f, l in occ]
+    return pmap, out
+
+
+def collect_all(root):
+    """Singular refs (from _()) merged with plural-singular refs (from N_()),
+    plus the {singular: plural} map. Returns (code, plurals)."""
+    def _key(r):
+        f, _, l = r.rpartition(":")
+        try:
+            return (f, int(l))
+        except ValueError:
+            return (f, 0)
+    code = collect_from_sources(root)
+    pmap, prefs = collect_plurals(root)
+    for sing, refs in prefs.items():
+        merged = list(code.get(sing, []))
+        for r in refs:
+            if r not in merged:
+                merged.append(r)
+        code[sing] = sorted(set(merged), key=_key)
+    return code, pmap
+
+
 # --------------------------------------------------------------------------- #
 # polib helpers
 # --------------------------------------------------------------------------- #
@@ -363,12 +457,14 @@ def _insert_sorted(po, entry):
     po.append(entry)
 
 
-def reconcile(po, code, is_pot, prune):
+def reconcile(po, code, is_pot, prune, plurals=None):
     """Bring `po` in line with the source `code` ({msgid: [refs]}) IN PLACE:
-    refresh occurrences, insert new msgids in sorted position, and drop obsolete
-    entries (always for a .pot; for a .po only when `prune`). Unchanged entries
-    keep their position, so a no-op run produces a minimal diff. Returns
+    refresh occurrences, insert new msgids in sorted position, drop obsolete
+    entries (always for a .pot; for a .po only when `prune`), and keep each
+    entry's plural-ness in step with `plurals` ({singular: plural}). Unchanged
+    entries keep their position, so a no-op run produces a minimal diff. Returns
     (added, obsolete_msgids)."""
+    plurals = plurals or {}
     code_ids = set(code)
     obsolete = []
     for e in list(po):
@@ -376,6 +472,21 @@ def reconcile(po, code, is_pot, prune):
             continue
         if e.msgid in code_ids:
             e.occurrences = occurrences_for(code, e.msgid)
+            if e.msgid in plurals:
+                if not e.msgid_plural:
+                    e.msgid_plural = plurals[e.msgid]
+                    if e.msgstr and not e.msgstr_plural:
+                        e.msgstr_plural = {0: e.msgstr, 1: ""}
+                        e.msgstr = ""
+                    elif not e.msgstr_plural:
+                        e.msgstr_plural = {0: "", 1: ""}
+                elif e.msgid_plural != plurals[e.msgid]:
+                    e.msgid_plural = plurals[e.msgid]
+            elif e.msgid_plural:
+                # No longer plural in the source — demote, keeping form 0.
+                e.msgstr = (e.msgstr_plural or {}).get(0, "")
+                e.msgid_plural = ""
+                e.msgstr_plural = {}
         else:
             obsolete.append(e.msgid)
             if is_pot or prune:
@@ -384,8 +495,16 @@ def reconcile(po, code, is_pot, prune):
     added = 0
     for msgid in sorted(code_ids):
         if msgid not in have:
-            _insert_sorted(po, polib.POEntry(
-                msgid=msgid, msgstr="", occurrences=occurrences_for(code, msgid)))
+            if msgid in plurals:
+                entry = polib.POEntry(
+                    msgid=msgid, msgid_plural=plurals[msgid],
+                    msgstr_plural={0: "", 1: ""},
+                    occurrences=occurrences_for(code, msgid))
+            else:
+                entry = polib.POEntry(
+                    msgid=msgid, msgstr="",
+                    occurrences=occurrences_for(code, msgid))
+            _insert_sorted(po, entry)
             added += 1
     return added, obsolete
 
@@ -404,6 +523,28 @@ def _strip_crlf(path):
 def _placeholders(s):
     """The %N positional placeholders (e.g. %1, %2) used by ffiutil.template."""
     return set(re.findall(r"%\d+", s or ""))
+
+
+def _is_translated(e):
+    """True if a PO entry carries a usable translation. For a plural entry the
+    forms live in msgstr_plural, so treat form 0 as the 'is it translated?'
+    signal — the same signal the Lua parser uses to decide whether to load the
+    entry, which keeps the two counts in agreement."""
+    if e.msgid_plural:
+        return bool((e.msgstr_plural or {}).get(0))
+    return bool(e.msgstr)
+
+
+def _ensure_plural_forms(po, path, plurals):
+    """Make sure a catalogue that will hold plural entries declares Plural-Forms
+    in its header (gettext requires it; the Lua parser reads it to pick forms)."""
+    if not plurals or po.metadata.get("Plural-Forms"):
+        return
+    if os.path.basename(path).endswith(".pot"):
+        po.metadata["Plural-Forms"] = "nplurals=INTEGER; plural=EXPRESSION;"
+    else:
+        # The plugin currently ships Bulgarian only (2 forms).
+        po.metadata["Plural-Forms"] = "nplurals=2; plural=(n != 1);"
 
 
 def _render(po):
@@ -530,7 +671,7 @@ def _which(name):
 def cmd_check(args):
     problems = 0
     notes = 0
-    code = collect_from_sources(PLUGIN_ROOT)
+    code, _plurals = collect_all(PLUGIN_ROOT)
     code_ids = set(code)
 
     pot = load_po(POT_PATH)
@@ -571,7 +712,7 @@ def cmd_check(args):
     for po_path in po_paths():
         po = load_po(po_path)
         po_ids = set(e.msgid for e in po if e.msgid)
-        empties = sorted(e.msgid for e in po if e.msgid and not e.msgstr)
+        empties = sorted(e.msgid for e in po if e.msgid and not _is_translated(e))
         name = os.path.basename(po_path)
         print("\n%s : %d of %d strings translated"
               % (name, len(po_ids) - len(empties), len(po_ids)))
@@ -642,18 +783,20 @@ def cmd_check(args):
 
 
 def cmd_sync(args):
-    code = collect_from_sources(PLUGIN_ROOT)
+    code, plurals = collect_all(PLUGIN_ROOT)
     _maybe_backup(args)
 
     print("Template (.pot):")
     pot = load_po(POT_PATH)
-    added, obsolete = reconcile(pot, code, is_pot=True, prune=True)
+    _ensure_plural_forms(pot, POT_PATH, plurals)
+    added, obsolete = reconcile(pot, code, is_pot=True, prune=True, plurals=plurals)
     apply_changes(pot, POT_PATH, args, added, len(obsolete))
 
     print("Translations:")
     for po_path in po_paths():
         po = load_po(po_path)
-        added, obsolete = reconcile(po, code, is_pot=False, prune=args.prune)
+        _ensure_plural_forms(po, po_path, plurals)
+        added, obsolete = reconcile(po, code, is_pot=False, prune=args.prune, plurals=plurals)
         apply_changes(po, po_path, args, added, len(obsolete) if args.prune else 0)
         if obsolete and not args.prune:
             print("    (%d obsolete entry/entries kept — use --prune to remove)"
@@ -669,7 +812,7 @@ def cmd_sync(args):
 
 
 def cmd_refs(args):
-    code = collect_from_sources(PLUGIN_ROOT)
+    code, _ = collect_all(PLUGIN_ROOT)
     _maybe_backup(args)
     for path in [POT_PATH] + po_paths():
         po = load_po(path)
@@ -739,7 +882,7 @@ def cmd_reword(args):
               " including any \\n escapes)")
 
     # 2) .pot + .po — rename the msgid, keep the translation, refresh refs.
-    code = collect_from_sources(PLUGIN_ROOT)   # reflects the renamed source
+    code, _ = collect_all(PLUGIN_ROOT)   # reflects the renamed source
     print("Template + translations:")
     for path in [POT_PATH] + po_paths():
         po = load_po(path)
@@ -770,7 +913,7 @@ def cmd_stats(args):
     for po_path in po_paths():
         po = load_po(po_path)
         ids = [e for e in po if e.msgid]
-        done = [e for e in ids if e.msgstr]
+        done = [e for e in ids if _is_translated(e)]
         pct = (100.0 * len(done) / len(ids)) if ids else 0.0
         filled = int(pct // 5)
         bar = "#" * filled + "." * (20 - filled)

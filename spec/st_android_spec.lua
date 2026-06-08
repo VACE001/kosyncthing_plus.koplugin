@@ -12,7 +12,8 @@ local Mock = require("spec.spec_helper")
 
 -- syncthing_i18n is provided by the mock, but guard in case that changes.
 package.loaded["syncthing_i18n"] = package.loaded["syncthing_i18n"]
-    or { gettext = function(s) return s end }
+    or { gettext = function(s) return s end,
+         ngettext = function(s, p, n) return (n == 1) and s or p end }
 
 -- st_android picks its JSON library with: rapidjson → cjson → fallback-nil.
 -- Neither rapidjson nor cjson is available in the test sandbox, so we inject

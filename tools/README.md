@@ -1,9 +1,9 @@
 # Translation tool — `i18n.py`
 
 `i18n.py` keeps the plugin's translations in sync with the code. It reads the
-`_("...")` strings out of the Lua source and maintains the gettext files in
-`locale/` (`syncthing.pot` is the template; `bg.po` and any other `*.po` are the
-translations).
+`_("...")` and `N_("...", "...", n)` strings out of the Lua source and maintains
+the gettext files in `locale/` (`syncthing.pot` is the template; `bg.po` and any
+other `*.po` are the translations).
 
 You do **not** need to understand gettext to use it — follow the workflow below.
 
@@ -23,7 +23,8 @@ self-check, but it is not required.
    ```
    python3 tools/i18n.py sync
    ```
-3. Open `locale/bg.po` and translate the new, empty `msgstr ""` lines.
+3. Open `locale/bg.po` and translate the new, empty `msgstr ""` lines. For a
+   plural string, fill in every `msgstr[0]`, `msgstr[1]`, … form for the language.
 4. Confirm everything is consistent:
    ```
    python3 tools/i18n.py check --lua
@@ -52,10 +53,13 @@ Running `python3 tools/i18n.py` with no command prints this same summary.
 
 ## What counts as a translatable string
 
-Only `_(...)` calls — the plugin's gettext alias
-(`local _ = require("syncthing_i18n").gettext`). The extractor understands `..`
-concatenation across lines, the `\n \t \r \" \\` escapes, and `[[long]]` string
-literals, and it ignores comments and text that merely appears inside other
+Both `_(...)` and `N_(...)` calls — the plugin's gettext aliases
+(`local _ = require("syncthing_i18n").gettext`,
+`local N_ = require("syncthing_i18n").ngettext`). A `_("...")` call is a single
+string; an `N_("one", "other", n)` call is a plural string, stored with an
+`msgid_plural` line and one `msgstr[N]` per plural form. The extractor understands
+`..` concatenation across lines, the `\n \t \r \" \\` escapes, and `[[long]]`
+string literals, and it ignores comments and text that merely appears inside other
 strings.
 
 ## Notes

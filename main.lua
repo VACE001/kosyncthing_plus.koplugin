@@ -230,7 +230,14 @@ function Syncthing:init()
     self.gui_password          = G_reader_settings:readSetting("syncthing_gui_password")
     self.gui_user              = G_reader_settings:readSetting("syncthing_gui_user", "syncthing")
     self.auto_start_charging   = G_reader_settings:readSetting("syncthing_auto_start_charging", false)
-    self.auto_start_always     = G_reader_settings:readSetting("syncthing_auto_start_always", false)
+    -- Autostart mode: "off" | "wifi" | "always".
+    -- Migrate the legacy boolean syncthing_auto_start_always (true -> "always").
+    local autostart_mode = G_reader_settings:readSetting("syncthing_autostart_mode")
+    if autostart_mode ~= "off" and autostart_mode ~= "wifi" and autostart_mode ~= "always" then
+        autostart_mode = G_reader_settings:isTrue("syncthing_auto_start_always") and "always" or "off"
+        G_reader_settings:saveSetting("syncthing_autostart_mode", autostart_mode)
+    end
+    self.autostart_mode        = autostart_mode
 	self.notifications_enabled = G_reader_settings:readSetting("syncthing_notifications_enabled", true)
 	self.resource_profile 	   = G_reader_settings:readSetting("syncthing_resource_profile", "low")
     self.network_access   	   = G_reader_settings:readSetting("syncthing_network_access", "lan")
@@ -344,9 +351,9 @@ function Syncthing:init()
         -- diagnosable (no 60 s notification storm); the reschedule below always
         -- runs regardless of the outcome.
         local ok, err = xpcall(function()
-        if self.auto_start_always and not self:isRunning() then
+        if self:_autoStartEnabled() and not self:isRunning() then
             self:runAutoStart("health_check")
-        elseif self.auto_start_always and self:isRunning() and not NetworkMgr:isOnline() then
+        elseif self:_autoStartEnabled() and self:isRunning() and not NetworkMgr:isOnline() then
             self:runAutoStop("health_check")
         elseif self:isRunning() then
             -- Refresh sync progress for the smart header.
@@ -442,7 +449,7 @@ function Syncthing:init()
             -- cancels the deferred restore.
             self._was_running_before_suspend = true
         end
-    elseif not self._android_mode and self.auto_start_always then
+    elseif not self._android_mode and self:_autoStartEnabled() then
         -- Cold-start Autostart.  The branch above only RESTORES a daemon that
         -- was already running before the last session ended (was_running=true);
         -- it never cold-starts one.  When Autostart is enabled but Syncthing
@@ -566,6 +573,29 @@ Syncthing.onClose    = Syncthing.onExit
 
 function Syncthing:_chargingConditionMet()
     return not self.auto_start_charging or (Device.powerd and Device.powerd:isCharging()) or false
+end
+
+function Syncthing:_autoStartEnabled()
+    return self.autostart_mode == "wifi" or self.autostart_mode == "always"
+end
+
+-- Only the "always" mode may turn Wi-Fi on by itself; "wifi" mode follows
+-- Wi-Fi but never forces the radio on.
+function Syncthing:_autoStartForcesWifi()
+    return self.autostart_mode == "always"
+end
+
+function Syncthing:_setAutostartMode(mode)
+    if mode ~= "off" and mode ~= "wifi" and mode ~= "always" then return end
+    self.autostart_mode = mode
+    G_reader_settings:saveSetting("syncthing_autostart_mode", mode)
+    if self:_autoStartEnabled() then
+        -- "enable --now": clear any session pause and start now if possible.
+        -- runAutoStart still honours charging and the network, and in "wifi"
+        -- mode it will NOT force Wi-Fi on.
+        U.setAutostartPaused(false)
+        self:runAutoStart("autostart_mode_changed")
+    end
 end
 
 function Syncthing:_autoStop(reason)

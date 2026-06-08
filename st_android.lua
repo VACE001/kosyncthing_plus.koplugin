@@ -51,6 +51,7 @@ do
 end
 
 local _ = require("syncthing_i18n").gettext
+local N_ = require("syncthing_i18n").ngettext
 
 -- IgnoreRegistry lets companion plugins (e.g. Syncery) exclude their own
 -- conflict files from the badge.  The Kindle scanner passes these to `find`
@@ -390,7 +391,7 @@ function Android.findConflictsLfs(self)
     local prev_count = self._last_notified_conflict_count
     local new_count  = #results
     if new_count > 0 and (prev_count == nil or prev_count == 0) then
-        self:showNotification(T(_("Sync conflicts detected: %1 file(s)"), new_count), 5)
+        self:showNotification(T(N_("Sync conflict detected: %1 file", "Sync conflicts detected: %1 files", new_count), new_count), 5)
     end
     if prev_count ~= new_count then
         self._last_notified_conflict_count = new_count

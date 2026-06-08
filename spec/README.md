@@ -1,6 +1,6 @@
 # Test Suite
 
-460 tests across 13 spec files. No KOReader installation required — all
+468 tests across 13 spec files. No KOReader installation required — all
 platform modules are stubbed by the mock layer.
 
 ## Running
@@ -32,7 +32,7 @@ busted spec                      # all files (skips st_process_spec)
 | `st_sync_spec.lua` | Quick Sync: scan failure, disk-space abort, folder-error detection during idle wait | 3 |
 | `st_conflict_spec.lua` | Conflict auto-merge: file removal failure, path construction, `.sync-conflict` pattern matching, **`last_percent` fallback** (old KOReader format), **`has_progress` detection when only one side has a percent field**, **short device ID parsing and device-name resolution** (including daemon-down fallback and self-conflict detection); **`resolveConflict`**: unresolvable path warning, missing-original keep/discard branches, reading-progress percentage dialog (keep local / use conflict), generic file timestamp dialog, `conflict_is_mine` orientation for both the file and the reading-progress dialogs ("Keep incoming / Restore mine") | 45 |
 | `st_health_spec.lua` | `getFolderHealth`: paused/error/syncing/idle state derivation, need-bytes accounting, per-folder error aggregation | 41 |
-| `st_orchestrator_spec.lua` | Lifecycle orchestration: autostart/stop, manual toggle, periodic sync scheduling, suspend/resume, Wi-Fi lease cleanup, reconcile, **opt-in auto-merge after sync** (`runSyncCompleted`), **a session-only pause flag gates Autostart**, **`hasNetwork()` LAN-only and full-offline paths**, **disconnect→reconnect cycle** | 49 |
+| `st_orchestrator_spec.lua` | Lifecycle orchestration: autostart/stop, manual toggle, periodic sync scheduling, suspend/resume, Wi-Fi lease cleanup, reconcile, **opt-in auto-merge after sync** (`runSyncCompleted`), **a session-only pause flag gates Autostart**, **`hasNetwork()` LAN-only and full-offline paths**, **disconnect→reconnect cycle**, **three-way Autostart mode (off/wifi/always): start gating, force-Wi-Fi only on "always", mode-gated network-disconnect and charging** | 57 |
 | `st_timer_spec.lua` | Periodic timer cancellation through the public API | 1 |
 | `st_guard_spec.lua` | Named lease idempotency, standby/wakelock balance, exception-path release | 25 |
 | `st_utils_spec.lua` | Path helpers, `isTransientFolderError`, `formatTime`, `getFriendlySize`, settings key catalogue, loopback detection, **`detectArch`** (LuaJIT path, `uname -m` fallback, unknown/failure cases) | 65 |
@@ -42,7 +42,7 @@ busted spec                      # all files (skips st_process_spec)
 | `st_api_spec.lua` | `SafeClient` HTTP layer: GET/PUT/PATCH routing, error capture, cache invalidation | 33 |
 | `st_legacy_spec.lua` | Legacy-mode gate (`needsPatch`), `downloadBinary` URL/arch construction, archive validation (`fileSize`, `isGzip`, `isELF`), atomic staging install, `patchSyncthingObject` read-modify-write shim | 69 |
 | `st_process_spec.lua` | Binary lifecycle: `start`, `stop`, `kindlePortGuard`, Kindle UDP port guards, `binaryExists` (ELF check), `isRunning`, `safeHomeDir`, `applyNetworkSettings`, `stopPlugin`, **Autostart pause (session-only flag) set only on manual stop, cleared on start, absent on automatic/suspend stops** | 57 |
-| **Total** | | **460** |
+| **Total** | | **468** |
 
 ### Note on `st_process_spec` and Busted
 

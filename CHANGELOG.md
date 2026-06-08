@@ -1,5 +1,43 @@
 # Changelog
 
+## [v1.1.5] — 2026-06-08
+
+### Changed
+- **New optional Start mode** replaces the single **Autostart Syncthing**
+  on/off toggle. It offers two mutually exclusive automatic modes, and neither
+  is on by default — without one, Syncthing runs only when you start it by
+  hand or via Quick Sync/Periodic Sync:
+  - **When Wi-Fi is on** — follows Wi-Fi: starts when Wi-Fi is already on,
+    stops when it goes off, and never turns Wi-Fi on by itself.
+  - **Always (brings Wi-Fi up)** — the previous behaviour: keeps Syncthing
+    running whenever possible, turning Wi-Fi on when needed.
+  Tapping the selected mode again turns it off. An existing "Autostart on"
+  setting maps to **Always**.
+- **Count-aware UI strings** — every message containing a number now uses proper
+  singular/plural forms (`ngettext`) instead of the old "folder(s)" style. English
+  reads naturally at any count ("1 folder up to date" / "5 folders up to date"),
+  and Bulgarian uses the correct counting forms with verb/adjective agreement.
+
+### Fixed
+- **A Wi-Fi disconnect no longer stops a manually started daemon** when no
+  start mode is selected — automatic stop-on-disconnect applies only to the
+  Wi-Fi-coupled modes ("When Wi-Fi is on" / "Always").
+
+### Documentation
+- README overhaul: the **Status & conflicts** menu is documented as its current
+  three-door layout (Folders / Devices / Conflicts); the settings reference now
+  lists every `syncthing_*` key; the **Start mode** section and menu tree
+  describe the two modes; the companion-API overview lists the periodic-sync
+  and settings/legacy methods.
+- API.md: clarified that `resolveConflictByPath` accepts only `keep_local` / `use_remote` (auto-merge is available on the bulk `resolveAllConflicts` only).
+- Bulgarian translation completed (all UI strings translated).
+
+### Development
+- **`make build`** produces the clean install zip (runtime files only — tests,
+  tools, and docs excluded).
+- The translation tool (`tools/i18n.py`) now extracts `N_("one", "other", n)`
+  plural calls and maintains the `Plural-Forms` header, alongside `_("...")`.
+
 ## [v1.1.4] — 2026-06-08
 
 ### Changed

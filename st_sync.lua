@@ -4,6 +4,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local NetworkMgr  = require("ui/network/manager")
 local logger      = require("logger")
 local _           = require("syncthing_i18n").gettext
+local N_          = require("syncthing_i18n").ngettext
 local T           = require("ffi/util").template
 local util        = require("util")
 local Event 	  = require("ui/event")
@@ -190,7 +191,7 @@ local function findConflicts(self)
 
     -- Notification only on new conflicts (transition 0 → N)
     if new_count > 0 and (prev_count == nil or prev_count == 0) then
-        self:showNotification(T(_("Sync conflicts detected: %1 file(s)"), new_count), 5)
+        self:showNotification(T(N_("Sync conflict detected: %1 file", "Sync conflicts detected: %1 files", new_count), new_count), 5)
     end
 
     -- Broadcast only when the count changes
@@ -219,9 +220,9 @@ local function syncNow(self, on_ui_refresh, silent)
     self:_invalidateConflictCache()
 	if not silent then
 		if failed > 0 then
-			self:showNotification(T(_("Rescan: %1 folder(s) scanned, %2 failed."), requested, failed), 5)
+			self:showNotification(T(N_("Rescan: %1 folder scanned, %2 failed.", "Rescan: %1 folders scanned, %2 failed.", requested), requested, failed), 5)
 		elseif requested > 0 then
-			self:showNotification(T(_("Rescan requested on %1 folder(s)."), requested), 3)
+			self:showNotification(T(N_("Rescan requested on %1 folder.", "Rescan requested on %1 folders.", requested), requested), 3)
 		else
 			self:showNotification(_("No active folders to rescan."), 3)
 		end
@@ -384,7 +385,7 @@ _startQuickSync = function(self, on_finish, on_ui_refresh, opts)
                     return
                 end
                 if failed > 0 and not silent then
-                    self:showNotification(T(_("Quick Sync: %1 folder scan request(s) failed."), failed), 5)
+                    self:showNotification(T(N_("Quick Sync: %1 folder scan request failed.", "Quick Sync: %1 folder scan requests failed.", failed), failed), 5)
                 end
 
                 local prev_state = {
@@ -592,7 +593,7 @@ _waitForIdle = function(self, start_time, on_ui_refresh, prev_state, on_finish, 
 
 	if folder_errors > 0 and elapsed >= MIN_OBSERVE_SEC then
 		if not silent then
-			self:showNotification(T(_("Quick Sync finished with %1 folder error(s)."), folder_errors), 5)
+			self:showNotification(T(N_("Quick Sync finished with %1 folder error.", "Quick Sync finished with %1 folder errors.", folder_errors), folder_errors), 5)
 		else
 			self:showNotification(_("Periodic sync finished with folder errors."), 5)
 		end
@@ -667,7 +668,7 @@ _waitForIdle = function(self, start_time, on_ui_refresh, prev_state, on_finish, 
     local now = time.to_s(time.now())
     -- Show progress only for manual Quick Sync (not periodic)
     if not silent and (progressed or (now - prev_state.last_toast_at) >= 30) then
-        self:showNotification(T(_("Syncing… %1 items (%2) remaining"), need_items, util.getFriendlySize(need_bytes)), 3)
+        self:showNotification(T(N_("Syncing… %1 item (%2) remaining", "Syncing… %1 items (%2) remaining", need_items), need_items, util.getFriendlySize(need_bytes)), 3)
         new_state.last_toast_at = now
     end
 
@@ -721,8 +722,8 @@ local function setPauseAll(self, paused, on_ui_refresh)
         UIManager:show(InfoMessage:new{
             timeout = 3,
             text    = paused
-                and T(_("All %1 folder(s) paused.\n\nSyncthing will not transfer files until you resume them."), count)
-                or  T(_("All %1 folder(s) resumed.\n\nSyncthing will begin syncing shortly."), count),
+                and T(N_("%1 folder paused.\n\nSyncthing will not transfer files until you resume it.", "All %1 folders paused.\n\nSyncthing will not transfer files until you resume them.", count), count)
+                or  T(N_("%1 folder resumed.\n\nSyncthing will begin syncing shortly.", "All %1 folders resumed.\n\nSyncthing will begin syncing shortly.", count), count),
         })
     end
 

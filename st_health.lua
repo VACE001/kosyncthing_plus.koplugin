@@ -10,6 +10,7 @@
 local time   = require("ui/time")
 local util   = require("util")
 local _      = require("syncthing_i18n").gettext
+local N_     = require("syncthing_i18n").ngettext
 local T      = require("ffi/util").template
 
 local U = require("st_utils")
@@ -70,11 +71,11 @@ end
 -- Cases (in priority order):
 --   1. Daemon not installed     → "Syncthing not installed — tap to install"
 --   2. Daemon stopped           → "Stopped — tap to start"
---   3. Conflicts present        → "⚠ N file conflict(s) need attention"
---   4. Folder errors            → "⚠ Errors in N folder(s)"
+--   3. Conflicts present        → "⚠ N file conflicts need attention"
+--   4. Folder errors            → "⚠ Errors in N folders"
 --   5. Currently syncing        → "Syncing… X MB remaining"
 --   6. All folders paused       → "All folders paused"
---   7. Up to date (peers seen)  → "Up to date · N device(s) online"
+--   7. Up to date (peers seen)  → "Up to date · N devices online"
 --   8. Up to date (no peers)    → "Up to date · no devices online"
 ---------------------------------------------------------------------------
 local function getStatusHeader(self)
@@ -98,7 +99,7 @@ local function getStatusHeader(self)
     -- Conflicts get top billing because they are user-visible problems.
     local conflicts = self:findConflicts()
     if #conflicts > 0 then
-        return T(_("⚠ %1 file conflict(s) need attention"), #conflicts)
+        return T(N_("⚠ %1 file conflict needs attention", "⚠ %1 file conflicts need attention", #conflicts), #conflicts)
     end
 
     local h = self:getFolderHealth()
@@ -107,7 +108,7 @@ local function getStatusHeader(self)
     end
 
     if h.errors > 0 then
-        return T(_("⚠ Errors in %1 folder(s)"), h.errors)
+        return T(N_("⚠ Error in %1 folder", "⚠ Errors in %1 folders", h.errors), h.errors)
     end
 
 	if h.syncing > 0 then
@@ -126,7 +127,7 @@ local function getStatusHeader(self)
 
     local online, total = countConnectedDevices(self)
     if online > 0 then
-        return T(_("Up to date · %1/%2 device(s) online"), online, total)
+        return T(N_("Up to date · %1/%2 device online", "Up to date · %1/%2 devices online", total), online, total)
     end
 
     return _("Up to date · no devices online")
@@ -162,7 +163,7 @@ local function getStatusBullets(self)
         elseif h.syncing > 0 then
             table.insert(bullets, {
                 symbol   = "⟳",
-                text     = T(_("Syncing %1 folder(s) · %2 remaining"),
+                text     = T(N_("Syncing %1 folder · %2 remaining", "Syncing %1 folders · %2 remaining", h.syncing),
                              h.syncing, util.getFriendlySize(h.need_bytes)),
                 severity = "info",
             })
@@ -176,7 +177,7 @@ local function getStatusBullets(self)
             local active = h.total - h.paused
             table.insert(bullets, {
                 symbol   = "✓",
-                text     = T(_("%1 folder(s) up to date"), active),
+                text     = T(N_("%1 folder up to date", "%1 folders up to date", active), active),
                 severity = "ok",
             })
         end
@@ -184,7 +185,7 @@ local function getStatusBullets(self)
         if h.errors > 0 then
             table.insert(bullets, {
                 symbol   = "✗",
-                text     = T(_("%1 folder(s) reporting errors"), h.errors),
+                text     = T(N_("%1 folder reporting errors", "%1 folders reporting errors", h.errors), h.errors),
                 severity = "error",
             })
         end
@@ -201,7 +202,7 @@ local function getStatusBullets(self)
         if h.paused > 0 and h.paused < h.total then
             table.insert(bullets, {
                 symbol   = "⏸",
-                text     = T(_("%1 folder(s) paused"), h.paused),
+                text     = T(N_("%1 folder paused", "%1 folders paused", h.paused), h.paused),
                 severity = "warn",
             })
         end
@@ -221,7 +222,7 @@ local function getStatusBullets(self)
     if #conflicts > 0 then
         table.insert(bullets, {
             symbol   = "⚠",
-            text     = T(_("%1 sync conflict(s) need attention"), #conflicts),
+            text     = T(N_("%1 sync conflict needs attention", "%1 sync conflicts need attention", #conflicts), #conflicts),
             severity = "warn",
         })
     else
@@ -237,7 +238,7 @@ local function getStatusBullets(self)
     if online > 0 then
         table.insert(bullets, {
             symbol   = "⇆",
-            text     = T(_("%1/%2 remote device(s) online"), online, total),
+            text     = T(N_("%1/%2 remote device online", "%1/%2 remote devices online", total), online, total),
             severity = "ok",
         })
     else
