@@ -2,11 +2,11 @@
 
 # KOSyncthing+
 
-[![Release](https://img.shields.io/github/v/release/d0nizam/kosyncthing_plus.koplugin?sort=semver)](https://github.com/d0nizam/kosyncthing_plus.koplugin/releases)
-[![License](https://img.shields.io/github/license/d0nizam/kosyncthing_plus.koplugin)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v1.1.4-blue)](https://github.com/d0nizam/kosyncthing_plus.koplugin/releases)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Kindle%20%7C%20Kobo%20%7C%20Android-lightgrey)
 ![Tests](https://img.shields.io/badge/tests-460%20passing-brightgreen)
-[![Stars](https://img.shields.io/github/stars/d0nizam/kosyncthing_plus.koplugin?style=social)](https://github.com/d0nizam/kosyncthing_plus.koplugin/stargazers)
+[![Star on GitHub](https://img.shields.io/badge/Star_on_GitHub-181717?logo=github&logoColor=white)](https://github.com/d0nizam/kosyncthing_plus.koplugin/stargazers)
 
 **Peer-to-peer file synchronisation integrated into KOReader.**
 
