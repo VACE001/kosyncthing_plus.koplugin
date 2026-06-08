@@ -624,7 +624,6 @@ KOSyncthing+                                   ← top‑level entry
 │   ├── Show notifications                   ← on/off; when off no completion
 │   │   or conflict toasts appear
 │   ├── Start mode                         ← When Wi‑Fi is on / Always
-│   │   ├── Off                            ← manual only; a Wi‑Fi drop won't stop it
 │   │   ├── When Wi‑Fi is on               ← follows Wi‑Fi; never forces it on
 │   │   └── Always (brings Wi‑Fi up)       ← keeps it running; turns Wi‑Fi on if needed
 │   ├── Periodic Quick Sync                  ← on/off; runs at chosen interval
