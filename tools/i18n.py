@@ -171,15 +171,49 @@ def lua_unescape(raw):
             i += 1
             continue
         nxt = raw[i + 1] if i + 1 < n else ""
-        if nxt == "x":                       # \xHH
-            out.append(chr(int(raw[i + 2:i + 4], 16)))
-            i += 4
-        elif nxt.isdigit():                  # \ddd (1-3 digits)
-            j = i + 1
-            while j < n and j < i + 4 and raw[j].isdigit():
-                j += 1
-            out.append(chr(int(raw[i + 1:j])))
-            i = j
+        if nxt == "x":                       # \xHH — may be a multi-byte UTF-8 run
+            # Collect consecutive \xHH escapes and decode them together as UTF-8,
+            # so a sequence like \xe2\x80\x93 round-trips to – (U+2013) rather than
+            # three Latin-1 code points whose re-encoded bytes never match the key
+            # Lua produces at runtime. An invalid byte run falls back to per-byte.
+            j = i
+            buf = bytearray()
+            while j + 3 < n and raw[j] == "\\" and raw[j + 1] == "x":
+                buf.append(int(raw[j + 2:j + 4], 16))
+                j += 4
+            if buf:
+                try:
+                    out.append(buf.decode("utf-8"))
+                except UnicodeDecodeError:
+                    out.extend(chr(b) for b in buf)
+                i = j
+            else:                            # malformed \x — keep original behaviour
+                out.append(chr(int(raw[i + 2:i + 4], 16)))
+                i += 4
+        elif nxt.isdigit():                  # \ddd decimal byte — same multi-byte rule
+            j = i
+            buf = bytearray()
+            while j < n and raw[j] == "\\" and j + 1 < n and raw[j + 1].isdigit():
+                k = j + 1
+                while k < n and k < j + 4 and raw[k].isdigit():
+                    k += 1
+                v = int(raw[j + 1:k])
+                if v > 255:                  # not a byte (invalid Lua); stop the run
+                    break
+                buf.append(v)
+                j = k
+            if buf:
+                try:
+                    out.append(buf.decode("utf-8"))
+                except UnicodeDecodeError:
+                    out.extend(chr(b) for b in buf)
+                i = j
+            else:                            # \ddd > 255 — keep original behaviour
+                k = i + 1
+                while k < n and k < i + 4 and raw[k].isdigit():
+                    k += 1
+                out.append(chr(int(raw[i + 1:k])))
+                i = k
         else:
             out.append(_LUA_ESC.get(nxt, nxt))
             i += 2
