@@ -42,7 +42,7 @@ KOSyncthing+ is a KOReader plugin that embeds a fully managed [Syncthing](https:
 
 Two excellent projects laid the groundwork for running Syncthing on KOReader:
 
-- **[jasonchoimtt/koreader-syncthing](https://github.com/jasonchoimtt/koreader-syncthing)** — the original, 320-star plugin that proved Syncthing could run comfortably on Kindle and Kobo hardware.
+- **[jasonchoimtt/koreader-syncthing](https://github.com/jasonchoimtt/koreader-syncthing)** — the original, 325-star plugin that proved Syncthing could run comfortably on Kindle and Kobo hardware.
 
 - **[bps/syncthing.koplugin](https://github.com/bps/syncthing.koplugin)** — a clean, focused reimplementation with automatic architecture detection (ARM / ARM64) and binary auto-download from GitHub Releases.
 
