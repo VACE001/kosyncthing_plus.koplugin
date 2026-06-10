@@ -1,6 +1,8 @@
 <div align="center">
 
-# KOSyncthing+
+<p align="center">
+  <img src="assets/kosyncthing-plus-logo.svg" alt="KOSyncthing+" width="440">
+</p>
 
 [![Release](https://img.shields.io/badge/release-v1.1.5-blue)](https://github.com/d0nizam/kosyncthing_plus.koplugin/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
