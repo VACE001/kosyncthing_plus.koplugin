@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Kindle%20%7C%20Kobo%20%7C%20Android-lightgrey)
 ![Tests](https://img.shields.io/badge/tests-468%20passing-brightgreen)
-[![Star on GitHub](https://img.shields.io/badge/Star_on_GitHub-181717?logo=github&logoColor=white)](https://github.com/d0nizam/kosyncthing_plus.koplugin/stargazers)
+[![Stars on GitHub](https://img.shields.io/badge/Star_on_GitHub-181717?logo=github&logoColor=white)](https://github.com/d0nizam/kosyncthing_plus.koplugin/stargazers)
 
 **Peer-to-peer file synchronisation integrated into KOReader.**
 
