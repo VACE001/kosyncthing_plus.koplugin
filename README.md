@@ -4,10 +4,10 @@
   <img src="assets/kosyncthing-plus-logo.svg" alt="KOSyncthing+" width="440">
 </p>
 
-[![Release](https://img.shields.io/badge/release-v1.1.5-blue)](https://github.com/d0nizam/kosyncthing_plus.koplugin/releases)
+[![Release](https://img.shields.io/badge/release-v1.1.6-blue)](https://github.com/d0nizam/kosyncthing_plus.koplugin/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Kindle%20%7C%20Kobo%20%7C%20Android-lightgrey)
-![Tests](https://img.shields.io/badge/tests-468%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-504%20passing-brightgreen)
 [![Stars on GitHub](https://img.shields.io/badge/Stars_on_GitHub-181717?logo=github&logoColor=white)](https://github.com/d0nizam/kosyncthing_plus.koplugin/stargazers)
 
 **Peer-to-peer file synchronisation integrated into KOReader.**
@@ -101,7 +101,7 @@ A **wakelock** (`preventSuspend` / `allowSuspend`) is held for the entire Quick 
 
 - **Per-folder status** — shows each folder's live state (Up to date, Syncing… N MB remaining, Scanning, Error, Paused) inside the Status menu.
 - **Honest "Fix error"** — when a folder reports an error, the Status menu shows the real Syncthing message (not just a count). The folder's action button reads **"Fix error"** only when a rescan would actually clear it (a transient *„… changed during …"* error); for errors a rescan cannot fix (permission denied, no space, folder marker missing, I/O) it stays a neutral **"Rescan folder"**, so the UI never promises a fix it cannot deliver. The full error text is also included in **Copy diagnostic info**, tagged *rescan-fixable* or *needs attention*.
-- **Pause / resume all folders** — the button label reflects the live paused count. When some folders are paused, it reads "Resume N paused folder(s)"; when all are active, "Pause all N folders".
+- **Pause / resume all folders** — the button label reflects the live paused count. When some folders are paused it reads "Resume %1 paused folder" (plural "…folders"); when all are active, "Pause all %1 folders".
 - **Accept pending devices** — view and accept incoming pairing requests from the KOReader menu. After accepting, offers to share all existing configured folders with the new device in one tap.
 - **Accept pending folders** — accept a folder shared by another device.
   The plugin suggests `<home_dir>/<folder_label>`; you can change the
@@ -130,13 +130,18 @@ All possible states, in priority order:
 |----------|-------------|-----------|
 | 1 | `Not installed — use "Install Syncthing binary" below` | no |
 | 2 | `Stopped — tap to start` | no |
-| 3 | `⚠ %1 file conflict(s) need attention` | **yes** |
+| 3 | `⚠ %1 file conflict needs attention` / `⚠ %1 file conflicts need attention` | **yes** |
 | 4 | `Starting up…` | no |
-| 5 | `⚠ Errors in %1 folder(s)` | **yes** |
+| 5 | `⚠ Error in %1 folder` / `⚠ Errors in %1 folders` | **yes** |
 | 6 | `Syncing… X% (Y remaining)` | no |
 | 7 | `All folders paused` | no |
-| 8 | `Up to date · %1 device(s) online` | no |
+| 8 | `Up to date · %1/%2 device online` / `Up to date · %1/%2 devices online` | no |
 | 9 | `Up to date · no devices online` | no |
+
+- In row 8, `%1` is how many paired remote devices are currently online and
+  `%2` how many are paired in total; this device itself is never counted
+  (Syncthing lists the local device in its connections, but it is excluded
+  here so the figure reflects peers only).
 
 - When Quick Sync or background sync is actively transferring files, the
   header shows the percentage complete (e.g. "Syncing… 45% (12 MB remaining)").
@@ -235,7 +240,7 @@ LAN only also passes `--no-upgrade` to the daemon and sets `STNOUPGRADE=1`.
 > has **not been tested on real old-kernel hardware** — the author has no
 > such device. Its decision logic (kernel detection and version selection),
 > the GitHub download URLs, and the v1.2.2 API-compatibility shim are covered
-> by an offline test suite (`spec/st_legacy_spec.lua`, 69 tests), and the
+> by an offline test suite (`spec/st_legacy_spec.lua`, 73 tests), and the
 > download URLs were confirmed against Syncthing's published release assets.
 > But the full on-device path — downloading a years-old Syncthing build,
 > launching it on a 2.6.x/3.0.x kernel, and actually syncing — has never been
@@ -270,7 +275,9 @@ was compiled with a Go version compatible with the device's kernel:
   tuning* are skipped or adjusted.
 
 **Automatic detection** — on first load the plugin silently classifies the
-kernel via `uname -r` into one of three states: *old* (< 3.2, needs legacy),
+kernel via `uname -r` (falling back to the kernel's procfs files
+`/proc/sys/kernel/osrelease` and `/proc/version` when no `uname` binary is
+present) into one of three states: *old* (< 3.2, needs legacy),
 *modern* (≥ 3.2, runs the standard binary), or *unknown* (could not be read).
 If the kernel is old and legacy is not yet configured, a non-intrusive hint
 appears suggesting **Setup → Legacy Syncthing**.
@@ -328,7 +335,9 @@ version.  Factory reset and plugin removal clean up both directories.
 - **Reset sync database** — deletes the index database directory, forcing a full re-index on the next start. Stops Syncthing first if running.
 - **Reset everything to factory defaults** — double-confirmed destructive reset: stops Syncthing, deletes `settings/syncthing/` entirely (config, TLS keys, device ID, database), wipes all `syncthing_*` keys from KOReader settings, and resets all in-memory plugin state. Synced files on disk are **not** deleted.  After stopping Syncthing, the reset verifies that the daemon has actually exited before wiping any files. If Syncthing cannot be stopped (e.g. due to a kernel I/O hang), the reset is refused with a clear message.
 - **Restart Syncthing** — stop and start in one tap.
-- **Download / update Syncthing** — fetch the latest binary from GitHub Releases.
+- **Check for updates** — a submenu with two separate updaters:
+  - **Update Syncthing binary** — fetch the latest Syncthing binary from GitHub Releases for this device's platform.
+  - **Check for plugin updates** — check the plugin's own GitHub releases for a newer KOSyncthing+ version, show the release notes, and install it in place, then offer to restart KOReader. Your settings, paired devices and the downloaded Syncthing binary are preserved. Prefers the release's install-zip asset and falls back to the source archive when none is attached.
 
 ### Notifications
 
@@ -411,6 +420,7 @@ including BasicSync — work without extra configuration.
 - **Rescan all folders**, **Pause / resume all folders**
 - **Pair with another device**, **Web GUI access** (address + QR)
 - **Copy diagnostic info**
+- **Check for plugin updates** — update the KOSyncthing+ plugin itself from GitHub, exactly as on Kindle/Kobo. The plugin code is platform-independent; only Syncthing *binary* management is delegated to the app, so there is no "Update Syncthing binary" item here — just the plugin updater.
 - Gestures: **Quick Sync** (rescan) and **Pause / resume all**
 
 **What is not shown (handled by the Syncthing app instead)**
@@ -458,7 +468,7 @@ settings/syncthing/key.pem
 
 When KOSyncthing+ starts for the first time it finds this directory and uses it as-is. Your device ID, all paired devices, all configured folders, and their sync states are preserved.
 
-The only manual step is downloading the Syncthing binary via **Maintenance → Download / update Syncthing**, since KOSyncthing+ manages its own copy of the binary separately from whichever binary the old plugin used.
+The only manual step is downloading the Syncthing binary via **Maintenance → Check for updates → Update Syncthing binary**, since KOSyncthing+ manages its own copy of the binary separately from whichever binary the old plugin used.
 
 ---
 
@@ -552,9 +562,10 @@ KOSyncthing+                                   ← top‑level entry
 │       daemon stays up afterwards)
 │
 ├── Pause all N folders /
-│   Resume N paused folder(s)                ← label shows live paused count:
+│   Resume N paused folders                  ← label shows live paused count
+│   (singular/plural picked automatically):
 │     • no paused folders → "Pause all N folders"
-│     • some paused → "Resume N paused folder(s)"
+│     • some paused → "Resume N paused folders"
 │     • all paused → "Resume all N folders"
 │
 ├── Status & conflicts (N)  ▸                ← badge = number of conflicts;
@@ -659,9 +670,14 @@ KOSyncthing+                                   ← top‑level entry
     │   NOT deleted
     ├── Restart Syncthing                     ← only active when running;
     │   stops and starts silently (no toast)
-    └── Check for updates  (vX.Y.Z installed) /
-        Install Syncthing binary              ← downloads latest binary from
-        GitHub Releases; Wi‑Fi required
+    └── Check for updates ▸
+        ├── Update Syncthing binary  (vX.Y.Z installed) /
+        │   Install Syncthing binary          ← downloads latest binary from
+        │   GitHub Releases; Wi‑Fi required
+        └── Check for plugin updates  (vX.Y.Z installed)
+                                              ← updates the plugin itself from
+                                              GitHub Releases, then restarts
+                                              KOReader; Wi‑Fi required
 ```
 
 </details>
@@ -759,6 +775,26 @@ copy with the higher `percent_finished` wins. Non-metadata files are skipped.
   notifications off, no toast is shown even when merges happen.
 - Uses the same engine as the manual auto-merge action, so the result is
   identical to running it by hand.
+- **Skipped while a book is open.** Auto-merge replaces a metadata sidecar on
+  disk, but KOReader rewrites the open book's sidecar from memory on its next
+  save (autosave / suspend / close), which would discard the merge. While any
+  book is open the whole pass is deferred; the conflicts are picked up on a
+  later scan once the Reader is closed.
+- **Enabling it asks twice.** The winner is chosen by reading position alone —
+  not by which copy is newer or has more annotations — so if you have highlights
+  on one device but another device is positioned further ahead, the further-ahead
+  copy wins and your highlights are overwritten. Switching the feature on
+  therefore shows an explicit warning with a worked example, then a second final
+  confirmation (the same gate on every device, including the Android remote-mode
+  menu). Turning it off is a single tap.
+
+> **On the design.** Picking the whole sidecar by reading progress, guarded by
+> these warnings, is a deliberately simple safeguard rather than a true merge —
+> a pragmatic, predictable default, and possibly a temporary one. A future
+> version may resolve these conflicts more intelligently: for example merging the
+> annotations from both sides and keeping the furthest position, so nothing is
+> lost regardless of which device read further. Until then, the progress pick
+> with an explicit opt-in warning does the job.
 
 ### Charging gate
 
@@ -858,7 +894,11 @@ local Syncthing = require("st_api_public").api
 
 
 The IgnoreRegistry (also documented in the API) lets companion plugins exclude
-their own sidecar files from the conflict scanner.
+their own files' conflict copies from the conflict scanner. A plugin registers a
+list of filename globs against the ORIGINAL names (e.g. `state.lua`, `*.sdr`);
+the registry matches a conflict copy by de-mangling its
+`.sync-conflict-…` / `~sync-conflict-…` name first, so companions never encode
+the conflict form themselves.
 
 All listener callbacks are wrapped in `pcall` — a broken listener will never crash KOSyncthing+.
 
@@ -1027,7 +1067,7 @@ kosyncthing_plus.koplugin/
 │                        (notifyProcessStarted, notifyProcessStopped,
 │                         notifyConflictsChanged)
 │
-├── st_conflict.lua      findConflicts (find command + IgnoreRegistry exclusions);
+├── st_conflict.lua      deriveOriginalPath (de-mangles .sync-conflict-/~sync-conflict- names);
 │                        resolveConflict (per-file dialog: missing-original, reading-progress
 │                        percentage, generic timestamp, conflict_is_mine label swap);
 │                        autoMergeReadingProgress (keep higher percent_finished / last_percent);
@@ -1234,7 +1274,7 @@ See [Legacy Syncthing support](#legacy-syncthing-support) for background.
 ### Syncthing won't start
 
 If Syncthing refuses to start:
-- Verify the binary is installed: **Maintenance → Check for updates**.
+- Verify the binary is installed: **Maintenance → Check for updates → Update Syncthing binary**.
 - Check that your KOReader home directory is set (Settings → Home folder).
 - Check the logs under **Maintenance → View logs** for specific errors.
 

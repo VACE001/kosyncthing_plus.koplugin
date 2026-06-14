@@ -1,5 +1,90 @@
 # Changelog
 
+## [v1.1.6] — 2026-06-14
+
+### Added
+- **Update the plugin itself from GitHub.** Maintenance → **Check for updates** is
+  now a submenu with **Update Syncthing binary** (the existing binary updater) and
+  a new **Check for plugin updates**. The latter checks the plugin's GitHub
+  releases, shows the release notes, downloads the new version and unpacks it in
+  place, then offers to restart KOReader. Your settings, paired devices and the
+  downloaded Syncthing binary are preserved. It prefers the release's install-zip
+  asset and falls back to the source archive when none is attached.
+- **Android remote mode can update the plugin too.** The dedicated Android menu
+  now includes **Check for plugin updates**. Remote mode has no plugin-managed
+  Syncthing binary, so there is no "Update Syncthing binary" item there — only
+  the plugin updater, with help text that reflects the remote-mode setup.
+
+### Fixed
+- **The conflict menu no longer crashes on open.** Tapping **Status & conflicts**
+  with one or more conflicts present could crash with an `ipairs(nil)` error in
+  KOReader's `touchmenu.lua`. The conflict screens are flat item lists, so they
+  now use KOReader's `Menu` widget instead of `TouchMenu` (which expects tabbed
+  `tab_item_table` input).
+- **`~`-separated conflict files are now detected.** Syncthing writes a conflict
+  copy as either `name.sync-conflict-….ext` or `name~sync-conflict-….ext`; both
+  scanners previously matched only the `.` form, so `~` conflicts were never
+  surfaced (nor de-mangled on resolve). Both separators are handled everywhere now.
+- **Auto-merge no longer runs while a book is open.** Reading-progress auto-merge
+  (after Quick Sync, or the manual *Auto-merge progress* action) replaces a
+  KOReader metadata sidecar on disk when the remote copy has higher progress.
+- **The "devices online" count no longer includes this device.** Syncthing's
+  `/system/connections` lists the local device itself (marked `isLocal`, keyed
+  by the local device ID), so the status header and the Status submenu reported
+  one device too many — e.g. "1/2 devices online" with a single online peer.
+- **Updates no longer crash on the LuaSocket fallback.** When neither curl nor
+  wget could complete a GitHub request — e.g. an e-reader whose BusyBox wget
+  cannot negotiate the `api.github.com` TLS — the download fell through to
+  KOReader's built-in LuaSocket transport, which crashed with "attempt to use a
+  closed file".
+
+### Changed
+- **IgnoreRegistry: a companion may register a LIST of patterns** (not just a
+  single one), and the call REPLACES that plugin's set. A conflict copy is now
+  matched by de-mangling it to its original name and testing the registered
+  globs, so a companion registers plain names/globs (`state.lua`, `*.sdr`)
+  without encoding Syncthing's `.sync-conflict-…` form. Both conflict scanners
+  share this one matcher, which excludes only genuine conflict copies (a file
+  that merely contains the text, with no `.`/`~` separator, is left alone). 
+  The companion API version is now `1.1.0`.
+- **Enabling auto-merge now requires an explicit double confirmation** (on every
+  device, including Android), mirroring the factory-reset flow. The first dialog
+  spells out that the winner is chosen by reading position only — so a copy that
+  is further ahead can overwrite annotations held by a copy that is not the
+  furthest-read — with a concrete two-device example; a second dialog is the
+  final confirm. Disabling stays a single tap.
+- **More robust kernel detection for Legacy mode.** `kernelState()` still tries
+  `uname -r` first, then falls back to the kernel's own procfs files
+  (`/proc/sys/kernel/osrelease`, then `/proc/version`), so a stripped e-ink
+  firmware with no `uname` binary is still classified instead of falling through
+  to "unknown". KOReader already relies on procfs for device detection, so it is
+  present wherever the plugin runs.
+- **Legacy Syncthing is discoverable on an unprobeable kernel.** When the kernel
+  version cannot be determined, the Legacy entry is shown neutrally (no ⚠) rather
+  than hidden, so the rare old-but-unprobeable e-reader can still find it without
+  implying a modern device needs to downgrade. The ⚠ now appears only for a
+  genuinely old kernel.
+- **Start-timeout guidance matches the likely cause.** On a start timeout an old
+  kernel is pointed at Legacy mode; any other device is pointed at re-installing
+  the binary (Maintenance → Check for updates, or a manual download) rather than
+  presuming a kernel problem.
+- Removed dead `syncthing_start_failed` machinery (a flag that was read and
+  cleared but never set, plus three comments describing a writer that did not
+  exist); the key is retained only in the reset list so a factory reset still
+  clears any value left by an older version.
+
+### Documentation
+- README: the UI-string table and the menu tree show real singular/plural forms
+  instead of the `(s)` shorthand; the IgnoreRegistry overview documents pattern
+  lists and conflict-copy matching.
+- API.md: `IgnoreRegistry:register` documents list input and replace semantics,
+  `getAll` returns `{ plugin_id = { pattern, … } }`, and the new
+  `matchesConflictBasename` method is described.
+- README: the Android (remote mode) section documents the plugin self-updater
+  (and why there is no binary updater there).
+- spec/README: the test catalogue is updated to 508 tests across 16 spec files,
+  adding the plugin-updater logic spec and the download-transport regression spec.
+
 ## [v1.1.5] — 2026-06-08
 
 ### Changed

@@ -31,6 +31,7 @@ local InputDialog = require("ui/widget/inputdialog")
 local MultiInputDialog = require("ui/widget/multiinputdialog")
 local Event       = require("ui/event")
 local T           = require("ffi/util").template
+local U           = require("st_utils")
 
 -- lfs path differs on-device (KOReader bundles it as libs/libkoreader-lfs)
 -- vs a plain luarocks "lfs" in the test sandbox.  Try both.
@@ -276,44 +277,17 @@ end
 -- §5  lfs-based conflict scanner
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Translate a shell `-name` glob (the form IgnoreRegistry stores) into an
--- anchored Lua pattern that matches a *basename*.  Mirrors `find -name`:
--- `*` → any run, `?` → one char, everything else literal (Lua magic escaped).
-local function globToLuaPattern(glob)
-    local out, i = { "^" }, 1
-    while i <= #glob do
-        local c = glob:sub(i, i)
-        if c == "*" then
-            out[#out + 1] = ".*"
-        elseif c == "?" then
-            out[#out + 1] = "."
-        elseif c:match("[%^%$%(%)%.%%%[%]%*%+%-%?]") then
-            out[#out + 1] = "%" .. c
-        else
-            out[#out + 1] = c
-        end
-        i = i + 1
+-- True if `name` (a conflict-copy basename) is excluded by a registered
+-- companion pattern.  Delegates to the IgnoreRegistry de-mangle matcher so the
+-- Android lfs scanner and the Kindle/daemon find post-filter share ONE rule.
+-- Test-injectable via `self._android_excluded_fn`.
+local function isExcludedConflict(self, name)
+    if self._android_excluded_fn then return self._android_excluded_fn(name) end
+    if not IgnoreRegistry or not IgnoreRegistry.matchesConflictBasename then
+        return false
     end
-    out[#out + 1] = "$"
-    return table.concat(out)
-end
-
--- True if `name` (a basename) matches any registered exclusion glob.
-local function isExcluded(name, exclusions)
-    for _, glob in pairs(exclusions) do
-        if type(glob) == "string" and glob ~= "" and name:match(globToLuaPattern(glob)) then
-            return true
-        end
-    end
-    return false
-end
-
--- Registered exclusions / generation, guarded and test-injectable.
-local function get_exclusions(self)
-    if self._android_exclusions_fn then return self._android_exclusions_fn() end
-    if not IgnoreRegistry then return {} end
-    local ok, patterns = pcall(function() return IgnoreRegistry:getAll() end)
-    return (ok and patterns) or {}
+    local ok, hit = pcall(function() return IgnoreRegistry:matchesConflictBasename(name) end)
+    return (ok and hit) or false
 end
 local function get_generation(self)
     if not IgnoreRegistry then return 0 end
@@ -325,7 +299,7 @@ end
 -- (*.sync-conflict-*).  Skips dot-directories (.stfolder/.stversions/etc.),
 -- skips names matching a companion exclusion (parity with `find ! -name`),
 -- and bounds depth against symlink cycles.
-local function scanForConflicts(dir, results, depth, exclusions)
+local function scanForConflicts(self, dir, results, depth)
     depth = depth or 0
     if depth > SCAN_MAX_DEPTH then return end
 
@@ -342,11 +316,11 @@ local function scanForConflicts(dir, results, depth, exclusions)
             if a then
                 if a.mode == "directory" then
                     if entry:sub(1, 1) ~= "." then
-                        scanForConflicts(path, results, depth + 1, exclusions)
+                        scanForConflicts(self, path, results, depth + 1)
                     end
                 elseif a.mode == "file" then
-                    if entry:find("%.sync%-conflict%-")
-                        and not (exclusions and next(exclusions) and isExcluded(entry, exclusions)) then
+                    if U.isConflictBasename(entry)
+                        and not isExcludedConflict(self, entry) then
                         results[#results + 1] = path
                     end
                 end
@@ -368,12 +342,11 @@ function Android.findConflictsLfs(self)
         and (now - (self._android_conflicts_cache_at or 0)) < CONFLICT_CACHE_TTL then
         return self._android_conflicts_cache
     end
-    local exclusions = get_exclusions(self)
     local folders = self:getFolders() or {}
     local results = {}
     for _, f in ipairs(folders) do
         if type(f.path) == "string" and f.path ~= "" then
-            scanForConflicts(f.path, results, 0, exclusions)
+            scanForConflicts(self, f.path, results, 0)
         end
     end
     self._android_conflicts_cache     = results
@@ -640,6 +613,5 @@ end
 Android._androidApiCall   = androidApiCall
 Android._scanForConflicts = scanForConflicts
 Android._probe            = probe
-Android._globToLuaPattern = globToLuaPattern
 
 return Android

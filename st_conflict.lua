@@ -9,6 +9,7 @@ local T           = require("ffi/util").template
 
 local ok_lfs, lfs = pcall(require, "lfs")
 local FS = require("st_filesystem")
+local U  = require("st_utils")
 
 -- Format a Unix timestamp to a short human-readable date+time string.
 local function formatMtime(t)
@@ -25,7 +26,7 @@ local function fileMtime(path)
 end
 
 local function deriveOriginalPath(conflict_path)
-    return conflict_path:gsub("%.sync%-conflict%-[%d%-]+%-[%dA-Z]+(%.?[^/]*)$", "%1")
+    return U.stripConflictInfix(conflict_path)
 end
 
 -- Extract the short device ID embedded in a conflict filename.
@@ -116,7 +117,7 @@ local function resolveConflict(self, conflict_path, touchmenu_instance)
         local book = p:match("/([^/]+)%.sdr/")
         if book then return book end
         local fname = p:match("([^/]+)$") or p
-        return fname:gsub("%.sync%-conflict%-[%d%-]+%-[%dA-Z]+", "")
+        return U.stripConflictInfix(fname)
     end
 
     local name = displayName(conflict_path)
@@ -360,8 +361,38 @@ end
 ---------------------------------------------------------------------------
 
 
+-- True when a document is currently open in the Reader.  KOReader sets
+-- ReaderUI.instance to the live ReaderUI while a book is open and back to nil
+-- on close (readerui.lua), so it is the canonical "is the user reading right
+-- now" signal.  We probe package.loaded rather than require() it: a book can
+-- only be open if ReaderUI was already loaded, so the key being absent already
+-- means no book is open — this avoids force-loading the heavy ReaderUI module
+-- when the merge runs from the FileManager.  A test seam (self._is_reading_fn)
+-- lets specs drive both states without a live ReaderUI.
+local function _isReadingBook(self)
+    if self and self._is_reading_fn then return self._is_reading_fn() and true or false end
+    local ReaderUI = package.loaded["apps/reader/readerui"]
+    if type(ReaderUI) ~= "table" then return false end
+    return ReaderUI.instance ~= nil
+end
+
 local function autoMergeReadingProgress(self, conflict_paths)
     local stats = { merged = 0, kept_local = 0, kept_remote = 0, skipped = 0, failed = 0 }
+
+    -- Never resolve a reading-progress conflict while a book is open.  KOReader
+    -- keeps the open book's metadata sidecar (reading position + annotations) in
+    -- memory and rewrites it to disk on autosave / suspend / close
+    -- (ReaderUI:onFlushSettings -> doc_settings:flush, with no external-change
+    -- detection).  Applying the higher-progress copy now (FS.rename) would be
+    -- silently overwritten by that flush — losing the merged-in progress and
+    -- consuming the conflict file so the conflict never reappears.  Defer the
+    -- whole pass: once the Reader is closed the on-disk sidecars are
+    -- authoritative again and the next sync-completed scan resolves them safely.
+    if _isReadingBook(self) then
+        stats.skipped = (type(conflict_paths) == "table") and #conflict_paths or 0
+        stats.deferred_open_book = true
+        return stats
+    end
 
     for _, conflict_path in ipairs(conflict_paths) do
         -- Use the same metadata detector that resolveConflict uses, so we

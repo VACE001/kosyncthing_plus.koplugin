@@ -455,11 +455,6 @@ end
 local function reconcile(self, trigger)
     self:_invalidateProcess()          -- drop the cached is_running value
     local running = self:isRunning()   -- fresh /proc probe
-    if running and G_reader_settings:isTrue("syncthing_start_failed") then
-        -- Daemon is actually up, so the failure flag (and the Legacy
-        -- escape-hatch hint it drives in the menu) is stale — clear it.
-        G_reader_settings:delSetting("syncthing_start_failed")
-    end
     logger.info(string.format("[Syncthing] reconcile(%s): running=%s",
         tostring(trigger), tostring(running)))
     return running
@@ -547,6 +542,11 @@ local function runSyncCompleted(self, _event)
         return
     end
     if type(stats) ~= "table" then return end
+
+    if stats.deferred_open_book then
+        logger.dbg("[Syncthing] auto-merge deferred: a book is open; conflicts left for after close")
+        return
+    end
 
     local merged = tonumber(stats.merged) or 0
     local failed = tonumber(stats.failed) or 0

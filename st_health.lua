@@ -53,10 +53,21 @@ local function countConnectedDevices(self)
     end
     local connections = self:getConnections() or {}
     local conn_map    = connections.connections or {}
+    -- Syncthing's /system/connections map includes the LOCAL device (marked
+    -- "isLocal" and keyed by the local device ID — see the REST API docs).
+    -- Exclude it so "X/Y devices online" counts peers only and never reports a
+    -- phantom offline device.  isLocal covers modern Syncthing; the device-ID
+    -- match is the version-independent fallback (the legacy v1.2.2 binary
+    -- predates the isLocal field).
+    local self_id = self.getDeviceId and self:getDeviceId() or nil
     local online, total = 0, 0
-    for _, conn in pairs(conn_map) do
-        total = total + 1
-        if conn.connected then online = online + 1 end
+    for id, conn in pairs(conn_map) do
+        local is_self = conn.isLocal == true
+                     or (self_id ~= nil and id == self_id)
+        if not is_self then
+            total = total + 1
+            if conn.connected then online = online + 1 end
+        end
     end
     self._connections_cache      = online
     self._connections_total      = total

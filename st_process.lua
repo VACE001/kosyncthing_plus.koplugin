@@ -582,12 +582,6 @@ local function start(self, callback)
             if pid and U.execOk(os.execute(string.format("kill -0 %d 2>/dev/null", pid))) and isProcessSyncthing(pid) then
                 standby_held = false   -- allowStandby() ще бъде извикано по-долу
                 self:_cacheInvalidate()
-                -- A successful start clears the failure flag set by a previous
-                -- timeout (AD-15).  If the device started fine, the Legacy
-                -- escape hatch no longer needs to advertise itself.
-                if G_reader_settings:isTrue("syncthing_start_failed") then
-                    G_reader_settings:delSetting("syncthing_start_failed")
-                end
                 -- Apply network settings via API (slightly later so the
                 -- performance PUT has settled first).
                 UIManager:scheduleIn(3, function()
@@ -708,15 +702,28 @@ local function start(self, callback)
             UIManager:scheduleIn(0.5, check_pid)
         else
             _cleanupStartResources("timeout")
+            -- Point the user at the remedy that matches what we know.  An old
+            -- kernel needs Legacy mode; otherwise the likely cause is a wrong
+            -- or corrupt binary, so steer to re-installing it rather than
+            -- presuming a kernel that may be perfectly modern.
+            local _lok, _lmod = pcall(require, "legacy")
+            local _kstate = (_lok and _lmod and _lmod.kernelState()) or "unknown"
+            local remedy
+            if _kstate == "old" then
+                remedy = _("Your device's kernel is too old for the current Syncthing — "
+                        .. "set up Legacy mode from Setup → Legacy Syncthing.")
+            else
+                remedy = _("Re-install it from Maintenance → Check for updates, or download the "
+                        .. "correct binary for your device from "
+                        .. "github.com/syncthing/syncthing/releases and place it in the plugin folder.")
+            end
             UIManager:show(InfoMessage:new{
                 icon = "notice-warning",
-                text = _(
-                    "Syncthing is taking too long to start (>12 seconds).\n\n" ..
-                    "This can happen on first launch while Syncthing generates its keys, " ..
-                    "or if the binary is incompatible with this device.\n\n" ..
-                    "If this keeps happening, your device may need Legacy mode — " ..
-                    "see Setup → Legacy Syncthing.\n\n" ..
-                    "Check Maintenance → View logs for details.")
+                text = T(_("Syncthing is taking too long to start (>12 seconds).\n\n"
+                        .. "This is usually a first-run delay while it generates its keys, "
+                        .. "or a binary that does not run on this device.\n\n"
+                        .. "%1\n\n"
+                        .. "Check Maintenance → View logs for details."), remedy),
             })
         end
     end

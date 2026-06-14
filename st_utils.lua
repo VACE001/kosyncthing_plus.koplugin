@@ -81,6 +81,55 @@ local function shellEscape(s)
     return tostring(s):gsub("'", "'\\''")
 end
 
+-- Strip Syncthing's conflict infix from a basename or path, yielding the
+-- ORIGINAL name.  Syncthing inserts "<sep>sync-conflict-YYYYMMDD-HHMMSS-<DEV>"
+-- before the final extension, where <sep> is "." or "~".  Handles both forms.
+--   mybook.sync-conflict-20260614-120000-ABCDEFG.epub -> mybook.epub
+--   state~sync-conflict-20260614-120000-ABCDEFG.lua   -> state.lua
+local function stripConflictInfix(name)
+    if type(name) ~= "string" then return name end
+    return (name:gsub("[.~]sync%-conflict%-[%d%-]+%-[%dA-Z]+(%.?[^/]*)$", "%1"))
+end
+
+-- True if `name` looks like a Syncthing conflict copy ("<sep>sync-conflict-…",
+-- where <sep> is "." or "~").  Single source for the "is this a conflict
+-- basename?" gate shared by both conflict scanners and matchesConflictBasename
+-- (so the gate cannot drift looser than the scanners that feed it).
+local function isConflictBasename(name)
+    return type(name) == "string" and name:find("[.~]sync%-conflict%-") ~= nil
+end
+
+-- Translate a shell `-name` glob into an anchored Lua pattern that matches a
+-- *basename*.  Mirrors `find -name`: `*` -> any run, `?` -> one char,
+-- everything else literal (Lua magic characters escaped).
+-- globToLuaPattern is a pure function of `glob`, so a glob always compiles to
+-- the same Lua pattern; the memo (over the small, validated set of registered
+-- globs) needs no invalidation.  Avoids recompiling identical patterns once per
+-- conflict file during a scan.
+local _glob_pattern_cache = {}
+local function globToLuaPattern(glob)
+    local cached = _glob_pattern_cache[glob]
+    if cached then return cached end
+    local out, i = { "^" }, 1
+    while i <= #glob do
+        local c = glob:sub(i, i)
+        if c == "*" then
+            out[#out + 1] = ".*"
+        elseif c == "?" then
+            out[#out + 1] = "."
+        elseif c:match("[%^%$%(%)%.%%%[%]%*%+%-%?]") then
+            out[#out + 1] = "%" .. c
+        else
+            out[#out + 1] = c
+        end
+        i = i + 1
+    end
+    out[#out + 1] = "$"
+    local pattern = table.concat(out)
+    _glob_pattern_cache[glob] = pattern
+    return pattern
+end
+
 -- Detect the userspace architecture for Syncthing release assets.
 -- LuaJIT reports the ABI KOReader itself is running under, which is the
 -- safest first choice on newer devices whose kernel uname can be unusual.
@@ -138,6 +187,7 @@ end
 
 local ELF_MAGIC = string.char(0x7f) .. "ELF"
 local GZIP_MAGIC = string.char(0x1f, 0x8b)
+local ZIP_MAGIC = "PK" .. string.char(0x03, 0x04)
 
 local function fileHasPrefix(path, prefix)
     local f = io.open(path, "rb")
@@ -153,6 +203,10 @@ end
 
 local function isGzip(path)
     return fileHasPrefix(path, GZIP_MAGIC)
+end
+
+local function isZip(path)
+    return fileHasPrefix(path, ZIP_MAGIC)
 end
 
 local function fileSize(path)
@@ -254,7 +308,10 @@ local ALL_SETTINGS_KEYS = {
     "syncthing_arch_warning_shown",
     "syncthing_password_configured",
     "syncthing_password_skip_at",
-	"syncthing_start_failed",
+    -- Deprecated: no longer written or read (kernel detection now uses procfs,
+    -- and the Legacy hint no longer gates on a start failure).  Kept here only
+    -- so a factory reset still clears any value left by an older version.
+    "syncthing_start_failed",
     -- Database relocation (AD-19): where the SQLite DB lives when /mnt/us is a
     -- hard_remove FUSE mount, plus the one-time "first scan" notice flag.  Both
     -- are cleared by factory reset so a fresh DB re-resolves and re-notifies.
@@ -690,12 +747,16 @@ return {
     getFreeSpace              = getFreeSpace,
 	getMountPoint			  = getMountPoint,
     shellEscape               = shellEscape,
+    stripConflictInfix        = stripConflictInfix,
+    isConflictBasename        = isConflictBasename,
+    globToLuaPattern          = globToLuaPattern,
     detectArch                = detectArch,
     isValidDeviceID           = isValidDeviceID,
     copyToClipboard           = copyToClipboard,
     execOk                    = execOk,
     isELF                     = isELF,
     isGzip                    = isGzip,
+    isZip                     = isZip,
     fileSize                  = fileSize,
     loopbackIsUp              = loopbackIsUp,
     invalidateLoopbackCache   = invalidateLoopbackCache,

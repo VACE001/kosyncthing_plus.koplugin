@@ -49,6 +49,50 @@ local path = DataStorage:getFullDataDir()
 local FOLDER_CACHE_TTL = U.FOLDER_CACHE_TTL
 
 ---------------------------------------------------------------------------
+-- Shared double-confirmation before ENABLING reading-progress auto-merge.
+-- Mirrors the factory-reset flow: an explicit warning with a concrete
+-- data-loss example, then a final confirmation.  Used by BOTH the standard
+-- Automation menu and the Android remote-mode menu, so the gate is identical
+-- on every device.  Disabling is always safe, so callers wrap only the
+-- OFF -> ON transition.
+---------------------------------------------------------------------------
+local function confirmEnableAutoMerge(on_confirm)
+    UIManager:show(ConfirmBox:new{
+        text = _(
+            "Enable automatic reading-progress merge?\n\n"
+            .. "After each Quick Sync, for every KOReader metadata conflict the copy "
+            .. "that is further ahead in the book replaces the other one — the whole "
+            .. "sidecar, including its annotations. It looks only at reading position, "
+            .. "not at which copy is newer or has more annotations.\n\n"
+            .. "So annotations can be lost when the copy that holds them is not the "
+            .. "one read furthest.\n\n"
+            .. "Example: on your e-reader you read and add highlights up to page 50. "
+            .. "On your phone you had already read ahead to page 80. When the two "
+            .. "sync, auto-merge keeps the page-80 copy (80 > 50) and replaces the "
+            .. "e-reader copy whole, dropping the highlights you made.\n\n"
+            .. "This runs automatically without asking each time, and cannot be undone."),
+        ok_text     = _("I understand, continue →"),
+        cancel_text = _("Cancel"),
+        ok_callback = function()
+            -- Second confirmation: prevents an accidental e-ink misfire from
+            -- arming a feature that can delete annotations.
+            UIManager:show(ConfirmBox:new{
+                text = _(
+                    "⚠  Final confirmation  ⚠\n\n"
+                    .. "Auto-merge can permanently delete annotations when one device "
+                    .. "is further ahead in a book than another.\n\n"
+                    .. "Enable it anyway?"),
+                ok_text     = _("Enable auto-merge"),
+                cancel_text = _("Cancel"),
+                ok_callback = function()
+                    if on_confirm then on_confirm() end
+                end,
+            })
+        end,
+    })
+end
+
+---------------------------------------------------------------------------
 -- Folder state → human label
 ---------------------------------------------------------------------------
 local STATE_LABELS = {
@@ -188,6 +232,17 @@ local function buildConflictsItems(self, conflicts)
                 ok_callback = function()
                     local stats = self:autoMergeReadingProgress(conflicts)
                     if tmi then tmi:updateItems() end
+                    if stats.deferred_open_book then
+                        UIManager:show(InfoMessage:new{
+                            timeout = 5,
+                            text    = _("A book is open. Reading-progress conflicts were left untouched "
+                                     .. "to avoid overwriting your live reading position and annotations "
+                                     .. "when KOReader saves the book.\n\n"
+                                     .. "Close the book and run auto-merge again, or tap individual "
+                                     .. "conflicts to resolve them manually."),
+                        })
+                        return
+                    end
                     -- Build the message string outside the table
                     local msg = T(_(
                         "Auto-merge complete.\n\n"
@@ -247,8 +302,8 @@ end
 local function showConflicts(self)
     local conflicts = self:findConflicts()
     if #conflicts == 0 then return end
-    local TouchMenu = require("ui/widget/touchmenu")
-    UIManager:show(TouchMenu:new{
+    local Menu = require("ui/widget/menu")
+    UIManager:show(Menu:new{
         title      = _("Conflicts"),
         item_table = buildConflictsItems(self, conflicts),
     })
@@ -1088,38 +1143,33 @@ local function getSetupMenu(self)
         separator = true,
     })
 
-    -- Legacy Syncthing — visibility is decided strictly by what the device
-    -- could plausibly need, so a modern-kernel device never sees an entry
-    -- whose only effect would be to downgrade its working Syncthing.
+    -- Legacy Syncthing — visibility reflects what the device could plausibly
+    -- need, so a modern-kernel device never sees an entry whose only effect
+    -- would be to downgrade its working Syncthing.
     --
-    --   kernel "modern" (≥ 3.2) → NEVER shown. Current Syncthing runs fine
-    --       here; a start failure on such a device is never a kernel problem
-    --       (wrong binary arch, busy port, slow first-run keygen), so legacy
-    --       mode cannot help and must not be offered.  The sole exception is
-    --       if legacy mode is somehow already enabled — then it is shown so
-    --       the user can turn it back OFF.
-    --   kernel "old" (< 3.2) → shown. This device genuinely needs it.
-    --   kernel "unknown" → shown only as a fallback, and only after a real
-    --       start attempt has timed out (syncthing_start_failed).  This is the
-    --       escape hatch for the rare device where `uname` could not be read;
-    --       the flag is set by the start path itself, independent of the menu,
-    --       so this is not circular.
+    --   kernel "modern" (≥ 3.2) → NEVER shown (unless already enabled, so it
+    --       can be turned OFF).  Current Syncthing runs fine here; a start
+    --       failure is never a kernel problem (wrong binary arch, busy port,
+    --       slow first-run keygen), so legacy mode cannot help.
+    --   kernel "old" (< 3.2) → shown with a ⚠.  This device genuinely needs it.
+    --   kernel "unknown" → shown, but NEUTRAL (no ⚠).  uname and procfs could
+    --       not be read, so we keep it discoverable for the rare old-but-
+    --       unprobeable e-reader, without claiming a downgrade is needed — the
+    --       failure may be a wrong/corrupt binary instead, and the start-timeout
+    --       message steers such devices to re-installing the binary first.
     local _leg_ok, _leg_mod = pcall(require, "legacy")
     if _leg_ok then
         local kstate         = _leg_mod.kernelState()
         local legacy_enabled = _leg_mod.isEnabled()
-        local start_failed   = G_reader_settings:isTrue("syncthing_start_failed")
 
         local show_legacy = legacy_enabled
             or kstate == "old"
-            or (kstate == "unknown" and start_failed)
+            or kstate == "unknown"
 
         if show_legacy then
-            -- ⚠ when the device looks like it needs legacy but it is not yet
-            -- enabled; never on a modern kernel (which only reaches here via
-            -- the already-enabled fail-safe).
-            local needs_attention = not legacy_enabled
-                and (kstate == "old" or (kstate == "unknown" and start_failed))
+            -- ⚠ only when we KNOW it is needed: an old kernel, not yet enabled.
+            -- An unprobeable kernel is shown neutrally.
+            local needs_attention = (not legacy_enabled) and kstate == "old"
             local legacy_label = needs_attention
                 and _("Legacy Syncthing ⚠")
                 or  _("Legacy Syncthing")
@@ -1178,7 +1228,10 @@ local function getAutomationMenu(self)
                            .. "Non-metadata files are skipped.\n\n"
                            .. "A brief notification appears when merges are performed or when a merge fails. "
                            .. "Disabled by default — enable only after you are comfortable with the manual "
-                           .. "Auto-merge progress action in Status & conflicts.")
+                           .. "Auto-merge progress action in Status & conflicts.\n\n"
+                           .. "It compares reading position only: the copy that is further ahead wins "
+                           .. "the whole sidecar, so highlights made on a copy that is not the "
+                           .. "furthest-read one can be overwritten. Skipped while a book is open.")
 
     -- Periodic Quick Sync
     local periodic_sync_help = _("Automatically run a Quick Sync at regular intervals when the device is awake.\n\n"
@@ -1332,9 +1385,17 @@ local function getAutomationMenu(self)
             end,
             hold_callback  = D.helpHold(auto_merge_help),
             callback       = function(tmi)
-                local enabled = not G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
-                G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", enabled)
-                if tmi then tmi:updateItems() end
+                if G_reader_settings:isTrue("syncthing_auto_merge_conflicts") then
+                    -- Disabling is always safe — no confirmation needed.
+                    G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", false)
+                    if tmi then tmi:updateItems() end
+                else
+                    -- Enabling can delete annotations — require explicit double confirmation.
+                    confirmEnableAutoMerge(function()
+                        G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+                        if tmi then tmi:updateItems() end
+                    end)
+                end
             end,
             separator = true,
         },
@@ -1378,6 +1439,8 @@ local function getMaintenanceMenu(self, touchmenu_instance)
                              .. "Wi-Fi is required. The currently installed version is shown in the menu label.")
     local install_help      = _("Download and install the Syncthing binary for this device's platform.\n\n"
                              .. "Wi-Fi is required.")
+    local plugin_update_help = _("Check GitHub for a newer release of the KOSyncthing+ plugin and install it in place.\n\n"
+                             .. "Wi-Fi is required. Your settings, paired devices and the Syncthing binary are kept; KOReader restarts to load the new version.")
     local api_error_help    = _("Show details of the last failed Syncthing API request.\n\n"
                              .. "Useful when reporting bugs. Becomes available only after an API call has failed.")
     local reset_db_help     = _("Delete the local Syncthing index so it is rebuilt from scratch on the next start.\n\n"
@@ -1945,30 +2008,49 @@ end),
             separator = true,
         },
 
-        -- Check for updates
+        -- Check for updates (submenu: Syncthing binary + the plugin itself)
         {
-            text_func = function()
-                if not self:binaryExists() then return _("Install Syncthing binary") end
-                local ver = self:getCurrentVersion()
-                return ver
-                    and T(_("Check for updates  (v%1 installed)"), ver)
-                    or  _("Check for updates")
-            end,
-            help_text = update_help,
+            text = _("Check for updates"),
             keep_menu_open = true,
-            -- Use a context-aware hold so that we explain the right thing
-            -- depending on whether the binary is already installed.
-            hold_callback = function()
-                local txt = self:binaryExists() and update_help or install_help
-                UIManager:show(InfoMessage:new{ text = txt })
-            end,
-            callback = self.safe("Check updates", function()
-                if not self:binaryExists() then
-                    self:showFirstRunDialog()
-                else
-                    self:checkForUpdates()
-                end
-            end),
+            sub_item_table = {
+                {
+                    text_func = function()
+                        if not self:binaryExists() then return _("Install Syncthing binary") end
+                        local ver = self:getCurrentVersion()
+                        return ver
+                            and T(_("Update Syncthing binary  (v%1 installed)"), ver)
+                            or  _("Update Syncthing binary")
+                    end,
+                    help_text = update_help,
+                    keep_menu_open = true,
+                    -- Use a context-aware hold so that we explain the right thing
+                    -- depending on whether the binary is already installed.
+                    hold_callback = function()
+                        local txt = self:binaryExists() and update_help or install_help
+                        UIManager:show(InfoMessage:new{ text = txt })
+                    end,
+                    callback = self.safe("Check updates", function()
+                        if not self:binaryExists() then
+                            self:showFirstRunDialog()
+                        else
+                            self:checkForUpdates()
+                        end
+                    end),
+                },
+                {
+                    text_func = function()
+                        local pv = require("st_plugin_update").getInstalledPluginVersion()
+                        return (pv and pv ~= "unknown")
+                            and T(_("Check for plugin updates  (%1 installed)"), pv)
+                            or  _("Check for plugin updates")
+                    end,
+                    help_text = plugin_update_help,
+                    keep_menu_open = true,
+                    callback = self.safe("Check plugin updates", function()
+                        self:checkForPluginUpdates()
+                    end),
+                },
+            },
         },
     }
 end
@@ -2029,8 +2111,8 @@ local function getAndroidMenu(self)
             local function showStatus()
                 local status_menu = getStatusMenu(self)
                 if status_menu and #status_menu > 0 then
-                    local TouchMenu = require("ui/widget/touchmenu")
-                    UIManager:show(TouchMenu:new{
+                    local Menu = require("ui/widget/menu")
+                    UIManager:show(Menu:new{
                         title      = _("Status & conflicts"),
                         item_table = status_menu,
                     })
@@ -2097,15 +2179,26 @@ local function getAndroidMenu(self)
                          .. "Non-metadata files are skipped.\n\n"
                          .. "A brief notification appears when merges are performed or when a merge fails. "
                          .. "Disabled by default — enable only after you are comfortable with the manual "
-                         .. "Auto-merge progress action in Status & conflicts."),
+                         .. "Auto-merge progress action in Status & conflicts.\n\n"
+                         .. "It compares reading position only: the copy that is further ahead wins "
+                         .. "the whole sidecar, so highlights made on a copy that is not the "
+                         .. "furthest-read one can be overwritten. Skipped while a book is open."),
         keep_menu_open = true,
         checked_func   = function()
             return G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
         end,
         callback       = function(tmi)
-            local enabled = not G_reader_settings:isTrue("syncthing_auto_merge_conflicts")
-            G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", enabled)
-            if tmi and tmi.updateItems then tmi:updateItems() end
+            if G_reader_settings:isTrue("syncthing_auto_merge_conflicts") then
+                -- Disabling is always safe — no confirmation needed.
+                G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", false)
+                if tmi and tmi.updateItems then tmi:updateItems() end
+            else
+                -- Enabling can delete annotations — same double confirmation as the standard menu.
+                confirmEnableAutoMerge(function()
+                    G_reader_settings:saveSetting("syncthing_auto_merge_conflicts", true)
+                    if tmi and tmi.updateItems then tmi:updateItems() end
+                end)
+            end
         end,
         separator      = true,
     }
@@ -2185,6 +2278,23 @@ local function getAndroidMenu(self)
 
     -- Connection settings (re-enter API key / re-detect scheme).
     sub[#sub + 1] = Android.connectionSettingsMenuItem(self)
+
+    -- Plugin self-update.  Remote mode has no plugin-managed binary, so the
+    -- full "Check for updates" submenu is absent here; the plugin can still
+    -- update itself, so offer that one action with an Android-accurate help.
+    sub[#sub + 1] = {
+        text_func = function()
+            local pv = require("st_plugin_update").getInstalledPluginVersion()
+            return (pv and pv ~= "unknown")
+                and T(_("Check for plugin updates  (%1 installed)"), pv)
+                or  _("Check for plugin updates")
+        end,
+        help_text = _("Check GitHub for a newer release of the KOSyncthing+ plugin and install it in place.\n\nWi-Fi is required. Your settings and the saved connection to the Syncthing app are kept; KOReader restarts to load the new version."),
+        keep_menu_open = true,
+        callback = self.safe("Check plugin updates", function()
+            self:checkForPluginUpdates()
+        end),
+    }
 
     -- Diagnostic snapshot — Android-relevant fields (no PID/legacy/binary).
     sub[#sub + 1] = {
@@ -2368,8 +2478,8 @@ local function addToMainMenu(self, menu_items)
                         if h and h.errors > 0 and not h.errors_fixable then
                             local status_menu = getStatusMenu(self)
                             if status_menu and #status_menu > 0 then
-                                local TouchMenu = require("ui/widget/touchmenu")
-                                UIManager:show(TouchMenu:new{
+                                local Menu = require("ui/widget/menu")
+                                UIManager:show(Menu:new{
                                     title      = _("Status & conflicts"),
                                     item_table = status_menu,
                                 })
@@ -2384,8 +2494,8 @@ local function addToMainMenu(self, menu_items)
                 local function showStatus()
                     local status_menu = getStatusMenu(self)
                     if status_menu and #status_menu > 0 then
-                        local TouchMenu = require("ui/widget/touchmenu")
-                        UIManager:show(TouchMenu:new{
+                        local Menu = require("ui/widget/menu")
+                        UIManager:show(Menu:new{
                             title      = _("Status & conflicts"),
                             item_table = status_menu,
                         })

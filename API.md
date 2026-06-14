@@ -22,7 +22,7 @@ Both reference the same table.
 ### API version
 
 ```lua
-Syncthing.version  --> string, e.g. "1.0.0"
+Syncthing.version  --> string, e.g. "1.1.0"
 ```
 
 Use this to gate features when writing a companion plugin that may run
@@ -562,17 +562,26 @@ Syncthing.util.formatTime("2024-...")
 
 ## IgnoreRegistry
 
-Companion plugins can exclude their own files from the conflict scanner
-so the Conflicts badge stays accurate.
+Companion plugins can exclude their own files' conflict copies from the
+conflict scanner so the Conflicts badge stays accurate.  A plugin registers a
+list of filename globs against the ORIGINAL basenames; the registry matches a
+conflict copy by de-mangling its `.sync-conflict-…` / `~sync-conflict-…` name
+first, so a companion registers plain names (`state.lua`, `*.sdr`) and never
+encodes the conflict form itself.
 
 ### Register Ignore Pattern
 
 ```lua
+-- A single glob, or a list of globs.  The call REPLACES this plugin's set.
 _G.KOSyncthingPlusAPI.IgnoreRegistry:register(
     "my_plugin_id",
-    "*.my-sidecar"
+    { "*.my-sidecar", "state.lua", "metadata.*.lua" }
 )
 ```
+
+Patterns match the **original** basename; the registry handles the
+`.sync-conflict-…` mangling, so do not add it yourself.  Re-registering replaces
+this plugin's previous list (it does not append).
 
 ### Unregister Ignore Pattern
 
@@ -593,11 +602,22 @@ local registered = _G.KOSyncthingPlusAPI.IgnoreRegistry:isRegistered("my_plugin_
 
 ```lua
 local patterns = _G.KOSyncthingPlusAPI.IgnoreRegistry:getAll()
--- returns { plugin_id = "pattern", ... }
-for id, pattern in pairs(patterns) do
-    print(id, pattern)
+-- returns { plugin_id = { "pattern", ... }, ... }
+for id, list in pairs(patterns) do
+    print(id, table.concat(list, ", "))
 end
 ```
+
+### Match a conflict filename
+
+```lua
+local hit = _G.KOSyncthingPlusAPI.IgnoreRegistry:matchesConflictBasename(
+    "state.sync-conflict-20260101-120000-ABCDEFG.lua")
+-- boolean: true if the de-mangled original matches a registered glob
+```
+
+Both conflict scanners (Kindle/daemon and Android) call this, so a registered
+pattern is honoured identically on every platform.
 
 ### API version
 

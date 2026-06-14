@@ -153,23 +153,27 @@ local function findConflicts(self)
         if p and util.pathExists(p) then dir_set[p] = true end
     end
 
-    local exclusions = IgnoreRegistry:buildFindExclusions()
-    local exclusions_part = (exclusions ~= "") and (" " .. exclusions) or ""
-
     local conflicts, seen = {}, {}
     for synced_dir in pairs(dir_set) do
+        -- Match BOTH conflict separators (".sync-conflict-" and
+        -- "~sync-conflict-"); registered companion patterns are applied below
+        -- as a de-mangling post-filter, so the find expression itself needs no
+        -- `! -name` exclusions.
         local cmd = string.format(
             "find '%s' "
             .. "-type d -name '.stfolder' -prune "
-            .. "-o -type f -name '*.sync-conflict-*'%s -print 2>/dev/null",
-            U.shellEscape(synced_dir),
-            exclusions_part)
+            .. "-o -type f \\( -name '*.sync-conflict-*' -o -name '*~sync-conflict-*' \\) "
+            .. "-print 2>/dev/null",
+            U.shellEscape(synced_dir))
         local f = io.popen(cmd)
         if f then
             for line in f:lines() do
                 if not seen[line] then
                     seen[line] = true
-                    table.insert(conflicts, line)
+                    local base = line:match("([^/]+)$") or line
+                    if not IgnoreRegistry:matchesConflictBasename(base) then
+                        table.insert(conflicts, line)
+                    end
                 end
             end
             f:close()

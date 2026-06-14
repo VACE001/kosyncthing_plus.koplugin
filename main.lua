@@ -698,6 +698,13 @@ for name, func in pairs(pair_mod)     do Syncthing[name] = func end
 for name, func in pairs(reset_mod)    do Syncthing[name] = func end
 for name, func in pairs(orchestrator_mod) do Syncthing[name] = func end
 
+-- Plugin self-update (distinct from the Syncthing binary update above).
+-- Lazy-required: this path is reached only from the Maintenance menu, so it
+-- should not cost plugin load time.
+function Syncthing:checkForPluginUpdates()
+    require("st_plugin_update").check()
+end
+
 -- Infrastructure
 Syncthing.safe = safe
 Syncthing._cacheGet = cacheGet

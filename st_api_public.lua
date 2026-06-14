@@ -23,8 +23,8 @@
 --
 --
 -- Provides three integration surfaces:
---   1. **IgnoreRegistry** – lets companion plugins exclude files from the
---      conflict scanner.
+--   1. **IgnoreRegistry** – lets companion plugins exclude their own files'
+--      conflict copies from the conflict scanner.  Each plugin may register
 --   2. **_G.KOSyncthingPlusAPI** – global table (also available via
 --      require("st_api_public").api) with status, control, info, events,
 --      a proxied REST call, and utility functions.
@@ -48,9 +48,9 @@ local U           = require("st_utils")
 local _rapidjson_ok, _rapidjson = pcall(require, "rapidjson")
 local JSON = _rapidjson_ok and _rapidjson or require("json")
 
-local API_VERSION = "1.0.0"
+local API_VERSION = "1.1.0"
 local REGISTRY_FILENAME = "kosyncthing_plus_ignore_registry.lua"
-local REGISTRY_VERSION = 1
+local REGISTRY_VERSION = 2
 
 -- =========================================================================
 --  IgnoreRegistry
@@ -77,8 +77,28 @@ local function _migrate(self, store)
         store:saveSetting("version", 1)
         store:flush()
         logger.info("[Syncthing] IgnoreRegistry: migrated to v1")
+        v = 1
     end
 
+    if v < 2 then
+        -- v1 stored ONE pattern string per plugin; v2 stores a LIST.  Coerce
+        -- any legacy string value into a one-element list (drop malformed).
+        local patterns = store:readSetting("patterns")
+        if type(patterns) == "table" then
+            local changed = false
+            for id, val in pairs(patterns) do
+                if type(val) == "string" then
+                    patterns[id] = { val }; changed = true
+                elseif type(val) ~= "table" then
+                    patterns[id] = nil; changed = true
+                end
+            end
+            if changed then store:saveSetting("patterns", patterns) end
+        end
+        store:saveSetting("version", 2)
+        store:flush()
+        logger.info("[Syncthing] IgnoreRegistry: migrated to v2 (per-plugin pattern lists)")
+    end
 end
 
 local function _load(self)
@@ -95,41 +115,69 @@ local function _load(self)
     return self._store
 end
 
-function IgnoreRegistry:register(plugin_id, pattern)
+-- Compare two pattern lists for equality (order-sensitive).
+local function _listEqual(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+    if #a ~= #b then return false end
+    for i = 1, #a do if a[i] ~= b[i] then return false end end
+    return true
+end
+
+-- Normalise the register() argument (a string or a list of strings) into a
+-- de-duplicated list.  Returns the list, or nil + reason on the first invalid
+-- entry: one bad pattern rejects the WHOLE call (all-or-nothing).
+local function _normalizePatterns(patterns)
+    if type(patterns) == "string" then patterns = { patterns } end
+    if type(patterns) ~= "table" or #patterns == 0 then
+        return nil, "patterns must be a non-empty string or list of strings"
+    end
+    local out, seen = {}, {}
+    for _, p in ipairs(patterns) do
+        if type(p) ~= "string" or p == "" then
+            return nil, "list contains an empty or non-string pattern"
+        end
+        if not seen[p] then seen[p] = true; out[#out + 1] = p end
+    end
+    return out
+end
+
+-- register(plugin_id, patterns):
+--   `patterns` may be a single glob string OR a list of glob strings.  The
+--   call REPLACES the plugin's full pattern set (it does not append).  Each
+--   glob is matched against the ORIGINAL basename; the registry matches a
+--   conflict copy by de-mangling it first, so callers register plain names
+--   (e.g. "state.lua", "*.sdr") without encoding the ".sync-conflict-…" form.
+function IgnoreRegistry:register(plugin_id, patterns)
     if type(plugin_id) ~= "string" or plugin_id == "" then
         logger.warn("[Syncthing] IgnoreRegistry:register: invalid plugin_id")
         return false
     end
-    if type(pattern) ~= "string" or pattern == "" then
-        logger.warn("[Syncthing] IgnoreRegistry:register: invalid pattern")
-        return false
-    end
-    if pattern:find("'", 1, true) then
-        logger.warn("[Syncthing] IgnoreRegistry:register: pattern contains single quotes, not allowed")
+    local list, reason = _normalizePatterns(patterns)
+    if not list then
+        logger.warn("[Syncthing] IgnoreRegistry:register: " .. reason)
         return false
     end
     local store = _load(self)
-    local patterns = store:readSetting("patterns") or {}
-    if patterns[plugin_id] == pattern then
-        return true
+    local all = store:readSetting("patterns") or {}
+    if _listEqual(all[plugin_id], list) then
+        return true  -- idempotent: identical set, no generation bump
     end
-    patterns[plugin_id] = pattern
-    store:saveSetting("patterns", patterns)
+    all[plugin_id] = list
+    store:saveSetting("patterns", all)
     store:flush()
     self._generation = self._generation + 1
-    logger.info("[Syncthing] IgnoreRegistry: registered", plugin_id, "->", pattern)
+    logger.info("[Syncthing] IgnoreRegistry: registered", plugin_id, "->",
+                table.concat(list, ", "))
     return true
 end
 
 function IgnoreRegistry:unregister(plugin_id)
     if type(plugin_id) ~= "string" or plugin_id == "" then return false end
     local store = _load(self)
-    local patterns = store:readSetting("patterns") or {}
-    if patterns[plugin_id] == nil then
-        return true
-    end
-    patterns[plugin_id] = nil
-    store:saveSetting("patterns", patterns)
+    local all = store:readSetting("patterns") or {}
+    if all[plugin_id] == nil then return true end
+    all[plugin_id] = nil
+    store:saveSetting("patterns", all)
     store:flush()
     self._generation = self._generation + 1
     logger.info("[Syncthing] IgnoreRegistry: unregistered", plugin_id)
@@ -139,26 +187,52 @@ end
 function IgnoreRegistry:isRegistered(plugin_id)
     if type(plugin_id) ~= "string" or plugin_id == "" then return false end
     local store = _load(self)
-    local patterns = store:readSetting("patterns") or {}
-    return patterns[plugin_id] ~= nil
+    local all = store:readSetting("patterns") or {}
+    return all[plugin_id] ~= nil
 end
 
+-- Returns a copy of the registry: { plugin_id = { glob, glob, ... }, ... }.
 function IgnoreRegistry:getAll()
     local store = _load(self)
-    local patterns = store:readSetting("patterns") or {}
+    local all = store:readSetting("patterns") or {}
     local copy = {}
-    for k, v in pairs(patterns) do copy[k] = v end
+    for id, list in pairs(all) do
+        if type(list) == "table" then
+            local l = {}
+            for i = 1, #list do l[i] = list[i] end
+            copy[id] = l
+        end
+    end
     return copy
 end
 
-function IgnoreRegistry:buildFindExclusions()
+-- True if `basename` (a conflict-copy filename, e.g. "x.sync-conflict-….lua")
+-- belongs to a registered companion: the name is de-mangled to its original
+-- and matched against every registered glob.  Used by BOTH conflict scanners
+-- (the Kindle/daemon find post-filter and the Android lfs scanner), so the
+-- two paths share one matching rule.
+function IgnoreRegistry:matchesConflictBasename(basename)
+    if type(basename) ~= "string" or basename == "" then return false end
+    -- Only genuine conflict copies are excludable.  Use the shared gate (the
+    -- same "<sep>sync-conflict-" test the scanners apply) so a plain original
+    -- name, or a user file that merely contains the substring without the
+    -- "." / "~" separator, is never matched.
+    if not U.isConflictBasename(basename) then return false end
     local store = _load(self)
-    local patterns = store:readSetting("patterns") or {}
-    local parts = {}
-    for _, pattern in pairs(patterns) do
-        table.insert(parts, string.format("! -name '%s'", pattern))
+    local all = store:readSetting("patterns") or {}
+    if not next(all) then return false end
+    local original = U.stripConflictInfix(basename)
+    for _, list in pairs(all) do
+        if type(list) == "table" then
+            for _, glob in ipairs(list) do
+                if type(glob) == "string" and glob ~= ""
+                   and original:match(U.globToLuaPattern(glob)) then
+                    return true
+                end
+            end
+        end
     end
-    return table.concat(parts, " ")
+    return false
 end
 
 function IgnoreRegistry:getGeneration()

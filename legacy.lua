@@ -91,22 +91,41 @@ local _kernel_state_cache = nil
 -- must behave differently for menu visibility.
 function Legacy.kernelState()
     if _kernel_state_cache ~= nil then return _kernel_state_cache end
-    local state = "unknown"
+
+    local function major_minor(s)
+        if not s then return nil end
+        local maj, min = s:match("(%d+)%.(%d+)")
+        return tonumber(maj), tonumber(min)
+    end
+    local function first_line(path)
+        local f = io.open(path, "r"); if not f then return nil end
+        local l = f:read("*l"); f:close(); return l
+    end
+
+    local major, minor
+    -- 1. uname -r — the existing probe, kept first.
     local p = io.popen("uname -r 2>/dev/null")
     if p then
         local ver = p:read("*l"); p:close()
-        if ver then
-            local major, minor = ver:match("^(%d+)%.(%d+)")
-            major = tonumber(major)
-            minor = tonumber(minor)
-            if major then
-                if (major < 3) or (major == 3 and minor < 2) then
-                    state = "old"
-                else
-                    state = "modern"
-                end
-            end
-        end
+        major, minor = major_minor(ver)
+    end
+    -- 2. /proc/sys/kernel/osrelease — kernel-published release string; covers
+    --    stripped firmware where the `uname` userspace binary is absent.  We
+    --    already depend on procfs for process detection, so it is present
+    --    wherever the plugin can run.
+    if not major then
+        major, minor = major_minor(first_line("/proc/sys/kernel/osrelease"))
+    end
+    -- 3. /proc/version — "Linux version X.Y.Z ..."; grab the token after
+    --    "version" so the match cannot land on the compiler version.
+    if not major then
+        local v = first_line("/proc/version")
+        major, minor = major_minor(v and v:match("version%s+(%S+)"))
+    end
+
+    local state = "unknown"
+    if major then
+        state = ((major < 3) or (major == 3 and (minor or 0) < 2)) and "old" or "modern"
     end
     _kernel_state_cache = state
     return state

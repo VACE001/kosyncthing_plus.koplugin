@@ -35,10 +35,9 @@ local function _downloadViaLua(url, save_path)
         return false, "Cannot write to file: " .. (err or "unknown")
     end
 
-    -- Wrap http.request in pcall so that socketutil:reset_timeout() and
-    -- f:close() are guaranteed on every exit path — including when LuaSocket
-    -- raises a Lua error (DNS failure, malformed URL, etc.).
-    -- Previously neither was called on success OR failure (BUG-35/BUG-36).
+    -- Wrap http.request in pcall so that socketutil:reset_timeout() always
+    -- runs, even when LuaSocket raises a Lua error (DNS failure, malformed
+    -- URL, etc.).
     socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
     local req_ok, code, _, status = pcall(function()
         return socket.skip(1, http.request{
@@ -47,7 +46,12 @@ local function _downloadViaLua(url, save_path)
         })
     end)
     socketutil:reset_timeout()  -- always reset, even if http.request raised
-    f:close()                   -- always close, even on failure
+    -- socketutil.file_sink closes the handle itself when the request
+    -- terminates (success, HTTP error, or timeout); only a Lua error raised
+    -- before the terminal chunk can leave it open. Close defensively and
+    -- ignore an already-closed handle — LuaJIT raises "attempt to use a
+    -- closed file" on a double close, which was the actual crash (not a leak).
+    pcall(function() f:close() end)
 
     if not req_ok then
         -- pcall caught a Lua error — remove the partial file
@@ -489,4 +493,8 @@ return {
     _invalidateVersionCache = invalidateVersionCache,
     checkForUpdates         = checkForUpdates,
     performUpdate           = performUpdate,
+    -- Generic transport (curl → wget → LuaSocket, follows redirects, uses the
+    -- bundled CA store).  Exposed so st_plugin_update can reuse the exact same
+    -- proven downloader for the GitHub API and the plugin archive.
+    downloadFile            = _downloadFile,
 }
