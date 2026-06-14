@@ -40,16 +40,29 @@
   surfaced (nor de-mangled on resolve). Both separators are handled everywhere now.
 - **Auto-merge no longer runs while a book is open.** Reading-progress auto-merge
   (after Quick Sync, or the manual *Auto-merge progress* action) replaces a
-  KOReader metadata sidecar on disk when the remote copy has higher progress.
+  KOReader metadata sidecar on disk when the remote copy has higher progress. If
+  that book is currently open, KOReader holds the sidecar (reading position and
+  annotations) in memory and rewrites it on its next save — autosave, suspend, or
+  close — with no external-change detection, so it would silently overwrite the
+  merged-in progress and consume the conflict file so the conflict never
+  reappeared. Auto-merge now defers the whole pass while any book is open; the
+  conflicts are resolved on a later scan after the Reader is closed, when the
+  on-disk sidecars are authoritative again.
 - **The "devices online" count no longer includes this device.** Syncthing's
   `/system/connections` lists the local device itself (marked `isLocal`, keyed
   by the local device ID), so the status header and the Status submenu reported
-  one device too many — e.g. "1/2 devices online" with a single online peer.
+  one device too many — e.g. "1/2 devices online" with a single online peer. The
+  local device is now excluded from the count (by `isLocal`, falling back to a
+  device-ID match for older daemons that predate that field).
 - **Updates no longer crash on the LuaSocket fallback.** When neither curl nor
   wget could complete a GitHub request — e.g. an e-reader whose BusyBox wget
   cannot negotiate the `api.github.com` TLS — the download fell through to
   KOReader's built-in LuaSocket transport, which crashed with "attempt to use a
-  closed file".
+  closed file". KOReader's `socketutil.file_sink` closes the file handle itself
+  when the request ends, and the code then closed it a second time. The
+  redundant close is now defensive, so the LuaSocket path returns its result (or
+  a clean error) instead of crashing. This affects both the Syncthing binary
+  updater and the plugin updater, on any device that lacks a working curl/wget.
 
 ### Changed
 - **IgnoreRegistry: a companion may register a LIST of patterns** (not just a
@@ -58,8 +71,7 @@
   globs, so a companion registers plain names/globs (`state.lua`, `*.sdr`)
   without encoding Syncthing's `.sync-conflict-…` form. Both conflict scanners
   share this one matcher, which excludes only genuine conflict copies (a file
-  that merely contains the text, with no `.`/`~` separator, is left alone). 
-  The companion API version is now `1.1.0`.
+  that merely contains the text, with no `.`/`~` separator, is left alone). The companion API version is now `1.1.0`.
 - **Enabling auto-merge now requires an explicit double confirmation** (on every
   device, including Android), mirroring the factory-reset flow. The first dialog
   spells out that the winner is chosen by reading position only — so a copy that
