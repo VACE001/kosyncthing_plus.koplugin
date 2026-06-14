@@ -27,6 +27,7 @@ build:
 		-x "API.md" \
 		-x "LICENSE" \
 		-x "spec/*" \
+		-x "github/*" \
 		-x "assets/*" \
 		-x "tools/*" \
 		-x "syncthing" \
