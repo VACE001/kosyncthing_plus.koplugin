@@ -1,5 +1,18 @@
 # Changelog
 
+## [v1.1.7] — 2026-06-15
+
+### Fixed
+- **The plugin updater now works on Android.** v1.1.6 added a *Check for plugin
+  updates* item to the Android remote-mode menu, but the updater wrote its
+  downloaded release metadata to a hardcoded `/tmp/…` path, which does not exist
+  on Android — so every check failed immediately with "No such file or
+  directory" and reported "Could not check for updates". That temporary file now
+  lives in the plugin folder (where the downloaded update archive already goes),
+  so the check works on Android the same as on Kindle/Kobo. (Android has no
+  `curl`/`wget` either, so the updater always uses KOReader's built-in network
+  stack there — which now has a writable place for its temporary file.)
+
 ## [v1.1.6] — 2026-06-14
 
 ### Added

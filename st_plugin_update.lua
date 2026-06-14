@@ -29,7 +29,7 @@ local JSON = rapidjson_ok and rapidjson or require("json")
 local REPO          = "d0nizam/kosyncthing_plus.koplugin"
 local API_LATEST    = "https://api.github.com/repos/" .. REPO .. "/releases/latest"
 local RELEASES_PAGE = "https://github.com/" .. REPO .. "/releases"
-local TMP_JSON      = "/tmp/kosyncthing_plus_release.json"
+local TMP_JSON      = U.plugin_path .. "plugin_release.json"
 local TMP_ZIP       = U.plugin_path .. "plugin_update.zip"
 local MIN_ZIP_SIZE  = 4096   -- a real plugin zip is far larger; a stray error
                              -- body would be tiny.
